@@ -10,6 +10,7 @@ use App\Models\CertificationCoachAssignment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 class IndexTest extends TestCase
@@ -87,34 +88,41 @@ class IndexTest extends TestCase
         $response->assertDontSee('Archived One');
     }
 
-    public function test_status_filter_draft_returns_only_draft(): void
+    /**
+     * 状態フィルタで指定した状態の資格だけが表示され、他状態は表示されないこと。
+     *
+     * published は test_status_filter_returns_only_matching_status で検証済みのため、
+     * ここでは残る draft / archived を網羅する。
+     */
+    #[DataProvider('statusFilterCases')]
+    public function test_status_filter_returns_only_specified_status(string $status, string $expectedName, array $hiddenNames): void
     {
+        // Arrange
         $admin = User::factory()->admin()->create();
         Certification::factory()->draft()->create(['name' => 'Draft One']);
         Certification::factory()->published()->create(['name' => 'Published One']);
         Certification::factory()->archived()->create(['name' => 'Archived One']);
 
-        $response = $this->actingAs($admin)->get(route('admin.certifications.index', ['status' => 'draft']));
+        // Act
+        $response = $this->actingAs($admin)->get(route('admin.certifications.index', ['status' => $status]));
 
+        // Assert
         $response->assertOk();
-        $response->assertSee('Draft One');
-        $response->assertDontSee('Published One');
-        $response->assertDontSee('Archived One');
+        $response->assertSee($expectedName);
+        foreach ($hiddenNames as $hidden) {
+            $response->assertDontSee($hidden);
+        }
     }
 
-    public function test_status_filter_archived_returns_only_archived(): void
+    /**
+     * @return array<string, array{string, string, array<int, string>}>
+     */
+    public static function statusFilterCases(): array
     {
-        $admin = User::factory()->admin()->create();
-        Certification::factory()->draft()->create(['name' => 'Draft One']);
-        Certification::factory()->published()->create(['name' => 'Published One']);
-        Certification::factory()->archived()->create(['name' => 'Archived One']);
-
-        $response = $this->actingAs($admin)->get(route('admin.certifications.index', ['status' => 'archived']));
-
-        $response->assertOk();
-        $response->assertSee('Archived One');
-        $response->assertDontSee('Draft One');
-        $response->assertDontSee('Published One');
+        return [
+            '下書きを指定すると下書きのみ' => ['draft', 'Draft One', ['Published One', 'Archived One']],
+            'アーカイブを指定するとアーカイブのみ' => ['archived', 'Archived One', ['Draft One', 'Published One']],
+        ];
     }
 
     public function test_category_filter(): void
