@@ -87,6 +87,36 @@ class IndexTest extends TestCase
         $response->assertDontSee('Archived One');
     }
 
+    public function test_status_filter_draft_returns_only_draft(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Certification::factory()->draft()->create(['name' => 'Draft One']);
+        Certification::factory()->published()->create(['name' => 'Published One']);
+        Certification::factory()->archived()->create(['name' => 'Archived One']);
+
+        $response = $this->actingAs($admin)->get(route('admin.certifications.index', ['status' => 'draft']));
+
+        $response->assertOk();
+        $response->assertSee('Draft One');
+        $response->assertDontSee('Published One');
+        $response->assertDontSee('Archived One');
+    }
+
+    public function test_status_filter_archived_returns_only_archived(): void
+    {
+        $admin = User::factory()->admin()->create();
+        Certification::factory()->draft()->create(['name' => 'Draft One']);
+        Certification::factory()->published()->create(['name' => 'Published One']);
+        Certification::factory()->archived()->create(['name' => 'Archived One']);
+
+        $response = $this->actingAs($admin)->get(route('admin.certifications.index', ['status' => 'archived']));
+
+        $response->assertOk();
+        $response->assertSee('Archived One');
+        $response->assertDontSee('Draft One');
+        $response->assertDontSee('Published One');
+    }
+
     public function test_category_filter(): void
     {
         $admin = User::factory()->admin()->create();
