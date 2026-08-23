@@ -69,8 +69,8 @@ final class OnboardAction
                 'password' => Hash::make($validated['password']),
                 'profile_setup_completed' => true,
                 'email_verified_at' => $now,
-                // status を更新しないと invited のまま残り、ログアウト後の再ログインや
-                // プラン機能(EnsureActiveLearning 等)が in_progress を要求するチェックで弾かれてしまう。
+                // status を更新しないと invited のまま残り、ログアウト後の再ログインが
+                // AuthenticateUserUsing の許可ステータス判定(in_progress / graduated のみ)で弾かれてしまう。
                 'status' => UserStatus::InProgress,
             ];
 
