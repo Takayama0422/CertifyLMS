@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature\Notification;
+namespace Tests\Feature\Http\Meeting;
 
 use App\Models\Certification;
 use App\Models\CoachAvailability;
@@ -20,7 +20,7 @@ use Tests\TestCase;
  * 面談予約(`POST .../meetings`)/ キャンセル(`POST /meetings/{meeting}/cancel`)が
  * 当事者(受講生 + 担当コーチ)双方へ `meeting_reserved` / `meeting_canceled` 通知を発火することを検証する。
  */
-class MeetingNotificationTest extends TestCase
+class NotificationTest extends TestCase
 {
     use RefreshDatabase;
 

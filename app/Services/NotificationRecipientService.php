@@ -18,7 +18,7 @@ use App\Models\User;
  * S-B-08(お知らせ配信)はこれに加えて「配信対象は受講生のみ・修了済は含めない」という追加規則を持つため、
  * ここでは共通規則のみを扱い、お知らせ側の追加判定は呼び出し側(AnnouncementController 配下)で行う。
  */
-final class NotificationRecipientPolicy
+final class NotificationRecipientService
 {
     public static function eligibleForEventNotification(User $user): bool
     {
