@@ -28,8 +28,7 @@ class AutoCompleteMeetingsCommand extends Command
         Meeting::query()
             ->where('status', MeetingStatus::Reserved->value)
             ->where('scheduled_at', '<', now()->subMinutes(60))
-            ->orderBy('id')
-            ->chunk(100, function ($meetings) use ($action, &$count): void {
+            ->chunkById(100, function ($meetings) use ($action, &$count): void {
                 foreach ($meetings as $meeting) {
                     $action($meeting);
                     $count++;
