@@ -18,9 +18,10 @@ use Illuminate\Support\Facades\DB;
  * お知らせ配信ユースケース。配信は即時 1 回のみで不可逆(再配信 / 編集 / 取消の経路を設けない)。
  *
  * 1. `announcements` へ配信履歴を 1 件作成する
- * 2. 配信対象タイプ(全受講生 / 資格指定 / ユーザー指定)に応じて対象受講生を解決する
- *    (受講生のみ・退会済 / 招待中 / 修了済は対象外。要件シート S12-06)
- * 3. 対象受講生それぞれへアプリ内通知 + メールを同期送信し、配信件数を記録する
+ * 2. 配信対象タイプ(全受講生 / 資格指定 / ユーザー指定)に応じて対象受講生を解決し、配信件数を記録する
+ * 3. コミット後(`DB::afterCommit()`)に対象受講生それぞれへアプリ内通知 + メールを同期送信する
+ *    (S-B-04 の chat / qa 回答通知と同じ扱い: 同期メール送信をトランザクション内に置くと、
+ *    送信失敗時に既に届いたメールを取り消せないまま配信履歴だけが巻き戻り、再操作で二重送信を招くため)
  *
  * @param array{
  *     title: string,
@@ -48,20 +49,27 @@ final class DispatchAnnouncementAction
 
             $recipients = $this->resolveRecipients($announcement);
 
-            foreach ($recipients as $recipient) {
-                $recipient->notify(new AdminAnnouncementNotification($announcement));
-            }
-
             $announcement->update(['dispatched_count' => $recipients->count()]);
+
+            DB::afterCommit(function () use ($announcement, $recipients): void {
+                foreach ($recipients as $recipient) {
+                    $recipient->notify(new AdminAnnouncementNotification($announcement));
+                }
+            });
 
             return $announcement->fresh();
         });
     }
 
     /**
+     * 配信対象タイプに応じた対象受講生を解決する。
+     *
+     * `AnnouncementSeeder` が実メール送信を避けつつ本番と同じ対象解決規則で開発データを作るために、
+     * ここだけを再利用できるよう public にしている(通知配信そのものは行わない)。
+     *
      * @return Collection<int, User>
      */
-    private function resolveRecipients(Announcement $announcement): Collection
+    public function resolveRecipients(Announcement $announcement): Collection
     {
         $query = User::query()
             ->where('role', UserRole::Student->value)

@@ -8,7 +8,9 @@ use App\Enums\AnnouncementTargetType;
 use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\User;
+use App\Notifications\AdminAnnouncementNotification;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Notifications\DatabaseNotification;
 use Illuminate\Support\Facades\Route;
 use Tests\TestCase;
 
@@ -131,6 +133,38 @@ class AnnouncementControllerTest extends TestCase
         $response->assertSessionHasErrors('target_user_id');
     }
 
+    public function test_store_rejects_coach_id_as_target_user(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $coach = User::factory()->coach()->inProgress()->create();
+
+        $response = $this->actingAs($admin)->post(route('admin.announcements.store'), [
+            'title' => 'タイトル',
+            'body' => '本文',
+            'target_type' => AnnouncementTargetType::User->value,
+            'target_user_id' => $coach->id,
+        ]);
+
+        $response->assertSessionHasErrors('target_user_id');
+        $this->assertDatabaseCount('announcements', 0);
+    }
+
+    public function test_store_rejects_admin_id_as_target_user(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $otherAdmin = User::factory()->admin()->create();
+
+        $response = $this->actingAs($admin)->post(route('admin.announcements.store'), [
+            'title' => 'タイトル',
+            'body' => '本文',
+            'target_type' => AnnouncementTargetType::User->value,
+            'target_user_id' => $otherAdmin->id,
+        ]);
+
+        $response->assertSessionHasErrors('target_user_id');
+        $this->assertDatabaseCount('announcements', 0);
+    }
+
     public function test_store_dispatches_and_redirects_to_show_with_flash(): void
     {
         $admin = User::factory()->admin()->create();
@@ -146,6 +180,34 @@ class AnnouncementControllerTest extends TestCase
         $response->assertRedirect(route('admin.announcements.show', $announcement));
         $response->assertSessionHas('success', 'お知らせを配信しました。');
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $student->id]);
+    }
+
+    public function test_recipient_can_reach_full_announcement_body_via_notification_detail_link(): void
+    {
+        // 配信(実 Action)→ 通知の data.url → その URL への遷移 → 本文全文表示、を通しで検証する。
+        // AdminAnnouncementNotification::url() は自身の DatabaseNotification ID(送信直前に採番)に
+        // 依存するため、自作の通知データではなく実際の配信結果でこの経路を確認する必要がある。
+        $admin = User::factory()->admin()->create();
+        $student = User::factory()->student()->inProgress()->create();
+
+        $this->actingAs($admin)->post(route('admin.announcements.store'), [
+            'title' => '通知詳細への到達確認',
+            'body' => "本文全文を確認するためのお知らせです。\n複数行を含みます。",
+            'target_type' => AnnouncementTargetType::AllStudents->value,
+        ]);
+
+        $notification = DatabaseNotification::query()
+            ->where('notifiable_id', $student->id)
+            ->where('type', AdminAnnouncementNotification::class)
+            ->firstOrFail();
+
+        $this->assertSame(route('notifications.show', $notification->id), $notification->data['url']);
+
+        $response = $this->actingAs($student)->get($notification->data['url']);
+
+        $response->assertOk();
+        $response->assertSee('通知詳細への到達確認');
+        $response->assertSee('本文全文を確認するためのお知らせです。', false);
     }
 
     public function test_student_cannot_store(): void
