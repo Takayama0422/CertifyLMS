@@ -20,9 +20,12 @@ use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\MeetingMemo;
 use App\Models\User;
+use App\Notifications\MeetingCanceledNotification;
+use App\Notifications\MeetingReservedNotification;
 use App\Services\CoachMeetingLoadService;
 use App\Services\MeetingAvailabilityService;
 use App\Services\MeetingQuotaService;
+use App\Services\NotificationRecipientPolicy;
 use App\UseCases\MeetingQuota\ConsumeQuotaAction;
 use App\UseCases\MeetingQuota\RefundQuotaAction;
 use Carbon\Carbon;
@@ -216,6 +219,8 @@ class MeetingController extends Controller
             return $meeting->fresh();
         });
 
+        $this->notifyMeetingParties($meeting, fn (User $recipient) => new MeetingReservedNotification($meeting));
+
         return redirect()
             ->route('meetings.show', $meeting)
             ->with('success', '面談を予約しました。');
@@ -250,9 +255,29 @@ class MeetingController extends Controller
             ]);
         });
 
+        $meeting->refresh();
+        $this->notifyMeetingParties($meeting, fn (User $recipient) => new MeetingCanceledNotification($meeting));
+
         return redirect()
             ->route('meetings.show', $meeting)
             ->with('success', '面談をキャンセルしました。面談回数を返却しました。');
+    }
+
+    /**
+     * 面談の当事者(受講生 + 担当コーチ)へ、配信対象の除外規則を通したうえで通知を配信する。
+     * 予約(store)/ キャンセル(cancel)の両方で使う共通ヘルパ。
+     *
+     * @param callable(User): (MeetingReservedNotification|MeetingCanceledNotification) $notificationFactory
+     */
+    private function notifyMeetingParties(Meeting $meeting, callable $notificationFactory): void
+    {
+        $meeting->loadMissing(['student', 'coach']);
+
+        foreach ([$meeting->student, $meeting->coach] as $recipient) {
+            if ($recipient !== null && NotificationRecipientPolicy::eligibleForEventNotification($recipient)) {
+                $recipient->notify($notificationFactory($recipient));
+            }
+        }
     }
 
     /**

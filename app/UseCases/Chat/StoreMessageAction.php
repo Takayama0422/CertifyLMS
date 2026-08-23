@@ -9,6 +9,8 @@ use App\Models\ChatMember;
 use App\Models\ChatMessage;
 use App\Models\ChatRoom;
 use App\Models\User;
+use App\Notifications\ChatMessageReceivedNotification;
+use App\Services\NotificationRecipientPolicy;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -18,6 +20,8 @@ use Illuminate\Support\Facades\DB;
  * - 送信者自身の `ChatMember.last_read_at = now()` を UPDATE(自分のメッセージは未読としてカウントしない)
  * - 通信失敗が DB 整合性に波及しないよう Pusher Broadcast は `DB::afterCommit()` で送る
  * - 担当コーチ未割当の判定は Controller 側で実施済(`CertificationCoachNotAssignedForChatException` 振り分け)
+ * - 送信者以外のルーム参加者(相手方)へ、配信対象の除外規則(`NotificationRecipientPolicy`)を通した
+ *   うえでアプリ内通知 + メール(`ChatMessageReceivedNotification`)を afterCommit で発火する
  */
 final class StoreMessageAction
 {
@@ -38,8 +42,20 @@ final class StoreMessageAction
                 ->where('user_id', $sender->id)
                 ->update(['last_read_at' => now()]);
 
-            DB::afterCommit(function () use ($message): void {
+            DB::afterCommit(function () use ($message, $sender, $room): void {
                 broadcast(new ChatMessageSent($message->load('sender')))->toOthers();
+
+                $recipients = ChatMember::query()
+                    ->with('user')
+                    ->where('chat_room_id', $room->id)
+                    ->where('user_id', '!=', $sender->id)
+                    ->get()
+                    ->pluck('user')
+                    ->filter(fn (?User $user) => $user !== null && NotificationRecipientPolicy::eligibleForEventNotification($user));
+
+                foreach ($recipients as $recipient) {
+                    $recipient->notify(new ChatMessageReceivedNotification($message));
+                }
             });
 
             return $message;
