@@ -131,6 +131,47 @@ class CrudTest extends TestCase
         ])->assertSessionDoesntHaveErrors('target_date');
     }
 
+    public function test_owner_can_update_goal_without_changing_past_target_date(): void
+    {
+        // Arrange: 期日を過ぎた達成済目標(Seeder の「期日 10 日前・達成済」相当)
+        $student = User::factory()->student()->create();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+        $goal = EnrollmentGoal::factory()->forEnrollment($enrollment)->achieved()->create([
+            'title' => '旧タイトル',
+            'target_date' => now()->subDays(10)->toDateString(),
+        ]);
+
+        // Act: 期日はそのまま(触っていない)、タイトルだけ更新
+        $response = $this->actingAs($student)->patch(route('enrollment-goals.update', $goal), [
+            'title' => '新タイトル',
+            'target_date' => $goal->target_date->toDateString(),
+        ]);
+
+        // Assert: 過去日のままでも「期日を変更していない」ので保存できるはず
+        $response->assertRedirect(route('enrollments.show', $enrollment));
+        $response->assertSessionDoesntHaveErrors('target_date');
+        $this->assertDatabaseHas('enrollment_goals', ['id' => $goal->id, 'title' => '新タイトル']);
+    }
+
+    public function test_owner_cannot_change_target_date_to_a_new_past_date(): void
+    {
+        // Arrange: 期日を過ぎた目標
+        $student = User::factory()->student()->create();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+        $goal = EnrollmentGoal::factory()->forEnrollment($enrollment)->create([
+            'target_date' => now()->subDays(10)->toDateString(),
+        ]);
+
+        // Act: 期日を「別の」過去日へ変更しようとする
+        $response = $this->actingAs($student)->patch(route('enrollment-goals.update', $goal), [
+            'title' => 'タイトル',
+            'target_date' => now()->subDays(3)->toDateString(),
+        ]);
+
+        // Assert: 新規に指定し直す過去日は新規作成時と同様に不可
+        $response->assertSessionHasErrors('target_date');
+    }
+
     public function test_owner_can_edit_and_update_goal_with_html_flow(): void
     {
         $student = User::factory()->student()->create();
@@ -264,6 +305,21 @@ class CrudTest extends TestCase
             $ids,
             '未達成(期日昇順)→ 達成済の順で並ぶはず',
         );
+    }
+
+    public function test_add_goal_form_is_hidden_on_soft_deleted_enrollment(): void
+    {
+        // Arrange: 受講解除済み(SoftDelete 済み)の受講登録。詳細画面自体は本人が閲覧できる(withTrashed ルート)
+        $student = User::factory()->student()->inProgress()->create();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+        $enrollment->delete();
+
+        // Act & Assert: 追加フォームが出ない(解除済み画面で押すと 404 になる導線を無くす)。
+        // store ルート自体は withTrashed 未指定のため、フォームを表示しなければ 404 導線に到達しない。
+        $this->actingAs($student)
+            ->get(route('enrollments.show', $enrollment))
+            ->assertOk()
+            ->assertDontSee('目標を追加');
     }
 
     public function test_goal_appears_on_enrollment_show_page_for_owner_coach_and_admin(): void

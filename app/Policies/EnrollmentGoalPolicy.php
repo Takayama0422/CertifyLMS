@@ -15,12 +15,18 @@ use App\Models\User;
  * 追加 / 編集 / 削除 / 達成マーク / 達成解除は受講生本人のみ可(コーチ / 管理者 / 他受講生は不可)。
  * 閲覧(本人 / 担当コーチ / 管理者)は受講登録詳細画面自体の認可(EnrollmentPolicy::view)に委ねるため、
  * 本 Policy では操作系 ability のみを扱う。
+ *
+ * `enrollments.show` は解除済み(SoftDelete 済み)の受講登録も本人が閲覧できるルートのため、
+ * 追加(create)は EnrollmentNotePolicy::viewAny と同様に trashed を弾く
+ * (解除済み画面で追加フォームが出て 404 になるのを防ぐ)。
  */
 class EnrollmentGoalPolicy
 {
     public function create(User $user, Enrollment $enrollment): bool
     {
-        return $user->role === UserRole::Student && $enrollment->user_id === $user->id;
+        return $user->role === UserRole::Student
+            && $enrollment->user_id === $user->id
+            && ! $enrollment->trashed();
     }
 
     public function update(User $user, EnrollmentGoal $goal): bool

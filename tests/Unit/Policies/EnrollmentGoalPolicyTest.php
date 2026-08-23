@@ -34,6 +34,17 @@ class EnrollmentGoalPolicyTest extends TestCase
         $this->assertFalse($policy->create($admin, $enrollment), '管理者は作成不可');
     }
 
+    public function test_create_forbidden_when_enrollment_is_soft_deleted(): void
+    {
+        // Arrange: 解除済み(SoftDelete 済み)の受講登録。本人でも追加不可(解除済み画面での 404 防止)
+        $owner = User::factory()->student()->create();
+        $enrollment = Enrollment::factory()->for($owner)->learning()->create();
+        $enrollment->delete();
+        $policy = new EnrollmentGoalPolicy;
+
+        $this->assertFalse($policy->create($owner->fresh(), $enrollment->fresh()), '解除済み受講登録では本人でも追加不可のはず');
+    }
+
     public function test_update_and_delete_allowed_only_for_owner(): void
     {
         $owner = User::factory()->student()->create();

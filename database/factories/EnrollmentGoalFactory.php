@@ -22,8 +22,8 @@ class EnrollmentGoalFactory extends Factory
     {
         return [
             'enrollment_id' => Enrollment::factory(),
-            'title' => $this->faker->sentence(4),
-            'description' => $this->faker->optional()->paragraph(),
+            'title' => fake()->sentence(4),
+            'description' => fake()->optional()->paragraph(),
             'target_date' => now()->addMonth()->toDateString(),
             'achieved_at' => null,
         ];
