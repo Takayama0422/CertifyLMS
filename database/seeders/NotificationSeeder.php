@@ -119,6 +119,43 @@ final class NotificationSeeder extends Seeder
         if ($canceledMeetingForCoach !== null) {
             $this->seed($coach, new MeetingCanceledNotification($canceledMeetingForCoach), read: true, createdAt: $now->copy()->subDays(3)->subHours(++$sequence));
         }
+
+        // --- 一覧のページネーション(20 件区切り)を実機確認できる件数まで、固定受講生の通知を積み増す ---
+        // (要件シート S9: 初期データで一覧とページネーションの動作を確認できる状態にすること)
+        $this->padForPagination($student, $now, [
+            $chatMessageForStudent !== null ? fn () => new ChatMessageReceivedNotification($chatMessageForStudent) : null,
+            $qaReplyForStudent !== null ? fn () => new QaReplyReceivedNotification($qaReplyForStudent) : null,
+            $reservedMeetingForStudent !== null ? fn () => new MeetingReservedNotification($reservedMeetingForStudent) : null,
+            $canceledMeetingForStudent !== null ? fn () => new MeetingCanceledNotification($canceledMeetingForStudent) : null,
+        ]);
+    }
+
+    /**
+     * 一覧が 20 件/ページで区切られるため、ページ送りを実機確認できるよう指定件数まで通知を積み増す。
+     * 種別を問わず「参照可能な既存データを使った通知」を日時違いで繰り返し投入する
+     * (この Seeder は notify() を経由しないため、同一の通知を複数件 INSERT しても重複配信にはならない)。
+     *
+     * @param array<int, (callable(): BusinessEventNotification)|null> $factories
+     */
+    private function padForPagination(User $recipient, Carbon $now, array $factories): void
+    {
+        $factories = array_values(array_filter($factories));
+        if ($factories === []) {
+            return;
+        }
+
+        $target = 25;
+        $existing = DatabaseNotification::query()->where('notifiable_id', $recipient->id)->count();
+
+        for ($i = 0; $existing + $i < $target; $i++) {
+            $factory = $factories[$i % count($factories)];
+            $this->seed(
+                $recipient,
+                $factory(),
+                read: $i % 3 !== 0,
+                createdAt: $now->copy()->subDays(5)->subHours($i + 1),
+            );
+        }
     }
 
     private function seed(User $recipient, BusinessEventNotification $notification, bool $read, Carbon $createdAt): void

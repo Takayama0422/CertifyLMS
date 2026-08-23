@@ -5,14 +5,14 @@ declare(strict_types=1);
 namespace Tests\Unit\Services;
 
 use App\Models\User;
-use App\Services\NotificationRecipientPolicy;
+use App\Services\NotificationRecipientService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
 /**
  * 通知配信対象の除外規則(要件シート S8: 管理者 / 退会済 / 招待中は対象外)を検証する。
  */
-class NotificationRecipientPolicyTest extends TestCase
+class NotificationRecipientServiceTest extends TestCase
 {
     use RefreshDatabase;
 
@@ -20,35 +20,35 @@ class NotificationRecipientPolicyTest extends TestCase
     {
         $user = User::factory()->student()->inProgress()->make();
 
-        $this->assertTrue(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertTrue(NotificationRecipientService::eligibleForEventNotification($user));
     }
 
     public function test_in_progress_coach_is_eligible(): void
     {
         $user = User::factory()->coach()->inProgress()->make();
 
-        $this->assertTrue(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertTrue(NotificationRecipientService::eligibleForEventNotification($user));
     }
 
     public function test_admin_is_not_eligible(): void
     {
         $user = User::factory()->admin()->inProgress()->make();
 
-        $this->assertFalse(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertFalse(NotificationRecipientService::eligibleForEventNotification($user));
     }
 
     public function test_withdrawn_user_is_not_eligible(): void
     {
         $user = User::factory()->student()->withdrawn()->make();
 
-        $this->assertFalse(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertFalse(NotificationRecipientService::eligibleForEventNotification($user));
     }
 
     public function test_invited_user_is_not_eligible(): void
     {
         $user = User::factory()->student()->invited()->make();
 
-        $this->assertFalse(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertFalse(NotificationRecipientService::eligibleForEventNotification($user));
     }
 
     public function test_graduated_student_is_eligible_for_event_notification(): void
@@ -57,6 +57,6 @@ class NotificationRecipientPolicyTest extends TestCase
         // 「退会済 / 招待中 / 管理者」のみを除外規則とする(要件シート S12-06)。
         $user = User::factory()->student()->graduated()->make();
 
-        $this->assertTrue(NotificationRecipientPolicy::eligibleForEventNotification($user));
+        $this->assertTrue(NotificationRecipientService::eligibleForEventNotification($user));
     }
 }

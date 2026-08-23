@@ -8,7 +8,7 @@ use App\Models\QaReply;
 use App\Models\QaThread;
 use App\Models\User;
 use App\Notifications\QaReplyReceivedNotification;
-use App\Services\NotificationRecipientPolicy;
+use App\Services\NotificationRecipientService;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -34,7 +34,7 @@ final class StoreAction
 
                 if ($threadAuthor !== null
                     && ! $threadAuthor->is($author)
-                    && NotificationRecipientPolicy::eligibleForEventNotification($threadAuthor)) {
+                    && NotificationRecipientService::eligibleForEventNotification($threadAuthor)) {
                     $threadAuthor->notify(new QaReplyReceivedNotification($reply));
                 }
             });
