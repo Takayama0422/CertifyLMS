@@ -30,6 +30,16 @@ class Kernel extends ConsoleKernel
 
         // 終了時刻超過の reserved 面談を completed に自動遷移(15 分間隔でリアルタイム性確保)
         $schedule->command('meetings:auto-complete')->cron('*/15 * * * *')->withoutOverlapping(5);
+
+        // 面談リマインダー — 前日 20:00 に一括配信(要件シート S12-05)。重複防止は Action 側の UNIQUE 制約で保証。
+        $schedule->command('notifications:send-meeting-reminders --window=eve')
+            ->dailyAt('20:00')
+            ->withoutOverlapping(5);
+
+        // 面談リマインダー — 開始 1 時間前(毎時 00 分起動、面談は毎時 00 分スロットのみのため 1 時間間隔で網羅できる)
+        $schedule->command('notifications:send-meeting-reminders --window=one_hour_before')
+            ->hourly()
+            ->withoutOverlapping(5);
     }
 
     /**
