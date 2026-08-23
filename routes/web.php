@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\CertificationCatalogController;
@@ -85,6 +86,7 @@ Route::middleware('auth')->group(function () {
 Route::middleware('auth')->prefix('notifications')->name('notifications.')->group(function () {
     Route::get('/', [NotificationController::class, 'index'])->name('index');
     Route::post('read-all', [NotificationController::class, 'markAllAsRead'])->name('markAllAsRead');
+    Route::get('{notification}', [NotificationController::class, 'show'])->name('show');
     Route::post('{notification}/read', [NotificationController::class, 'markAsRead'])->name('markAsRead');
 });
 
@@ -205,6 +207,12 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.enrollments.updateExamDate');
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
+
+    // お知らせ配信(S-B-08、既存の通知基盤に乗せて受講生へ配信。再配信 / 編集 / 取消の経路は無い)
+    Route::get('announcements', [AnnouncementController::class, 'index'])->name('admin.announcements.index');
+    Route::get('announcements/create', [AnnouncementController::class, 'create'])->name('admin.announcements.create');
+    Route::post('announcements', [AnnouncementController::class, 'store'])->name('admin.announcements.store');
+    Route::get('announcements/{announcement}', [AnnouncementController::class, 'show'])->name('admin.announcements.show');
 });
 
 // ============================================================
