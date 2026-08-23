@@ -69,11 +69,9 @@ final class EnrollmentSeeder extends Seeder
         }
 
         $admin = User::query()->where('role', UserRole::Admin->value)->orderBy('created_at')->first();
-        $coach1 = User::query()->where('email', 'coach@certify-lms.test')->first();
-        $coach2 = User::query()->where('email', 'coach2@certify-lms.test')->first();
 
         if ($fixedStudent !== null) {
-            $this->enrollFixedStudent($fixedStudent, $publishedCertifications, $admin, $coach1, $coach2);
+            $this->enrollFixedStudent($fixedStudent, $publishedCertifications, $admin);
         }
 
         $this->enrollDemoStudents($demoStudents, $publishedCertifications, $admin);
@@ -129,7 +127,7 @@ final class EnrollmentSeeder extends Seeder
      *
      * @param Collection<int, Certification> $publishedCerts
      */
-    private function enrollFixedStudent(User $student, $publishedCerts, ?User $admin, ?User $coach1, ?User $coach2): void
+    private function enrollFixedStudent(User $student, $publishedCerts, ?User $admin): void
     {
         $targets = $publishedCerts->take(4);
 
@@ -157,26 +155,32 @@ final class EnrollmentSeeder extends Seeder
                 ],
             );
 
-            // S-B-07: coach1 / coach2 / admin が固定 student の Enrollment にメモを残す(他コーチ越境拒否シナリオ用)。
-            // CertificationSeeder の割当(coach1=publishedCerts[0,1,2] / coach2=publishedCerts[2,3,4])に沿わせ、
-            // 1 件目/2 件目は coach1 のみ、3 件目(両コーチ担当)は coach1+coach2 混在、4 件目は coach2 のみが自然な形。
-            $this->seedFixedStudentNotes($enrollment, $index, $admin, $coach1, $coach2);
+            // S-B-07: 実際に割り当てられた担当コーチ + admin が固定 student の Enrollment にメモを残す
+            // (他コーチ越境拒否シナリオ用)。CertificationSeeder の割当順を決め打ちせず、実際の
+            // CertificationCoachAssignment を引いて作成者を決める(割当順が変わっても担当外コーチの
+            // メモが混ざらないようにするため)。
+            $this->seedFixedStudentNotes($enrollment, $index, $admin);
         }
     }
 
     /**
-     * 固定 student の各 Enrollment にコーチメモを投入する(担当割当に沿った自然な組み合わせ)。
+     * 固定 student の各 Enrollment にコーチメモを投入する(実際の担当割当に沿った自然な組み合わせ)。
      */
-    private function seedFixedStudentNotes(Enrollment $enrollment, int $index, ?User $admin, ?User $coach1, ?User $coach2): void
+    private function seedFixedStudentNotes(Enrollment $enrollment, int $index, ?User $admin): void
     {
-        $authorsByIndex = [
-            0 => array_filter([$coach1]),
-            1 => array_filter([$coach1, $admin]),
-            2 => array_filter([$coach1, $coach2]),
-            3 => array_filter([$coach2]),
-        ];
+        $assignedCoachIds = CertificationCoachAssignment::query()
+            ->where('certification_id', $enrollment->certification_id)
+            ->whereNull('unassigned_at')
+            ->pluck('user_id');
 
-        foreach ($authorsByIndex[$index] ?? [] as $author) {
+        $authors = User::query()->whereIn('id', $assignedCoachIds)->get()->all();
+
+        // 2 件目(index === 1)相当は admin のメモも重ね、コーチ + 管理者混在の閲覧確認シナリオを維持する。
+        if ($admin !== null && $index === 1) {
+            $authors[] = $admin;
+        }
+
+        foreach ($authors as $author) {
             EnrollmentNote::firstOrCreate(
                 ['enrollment_id' => $enrollment->id, 'user_id' => $author->id],
                 ['body' => $author->id === $admin?->id

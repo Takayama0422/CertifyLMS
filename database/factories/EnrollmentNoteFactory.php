@@ -24,7 +24,7 @@ class EnrollmentNoteFactory extends Factory
         return [
             'enrollment_id' => Enrollment::factory(),
             'user_id' => User::factory()->coach(),
-            'body' => $this->faker->paragraph(),
+            'body' => fake()->paragraph(),
         ];
     }
 

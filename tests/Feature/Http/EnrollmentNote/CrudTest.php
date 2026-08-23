@@ -204,6 +204,41 @@ class CrudTest extends TestCase
             ->assertDontSee('解除前のメモ本文');
     }
 
+    public function test_student_cannot_edit_update_or_destroy_note(): void
+    {
+        // Arrange: ロールグループ指定(role:coach|admin 等)が落ちた場合に検知できるよう、
+        // 受講生による編集/更新/削除の各経路への到達を個別に検証する
+        $student = User::factory()->student()->create();
+        $author = User::factory()->coach()->create();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+        $this->assignCoach($author, $enrollment->certification);
+        $note = EnrollmentNote::factory()->forEnrollment($enrollment)->forAuthor($author)->create();
+
+        $this->actingAs($student)->get(route('enrollment-notes.edit', $note))->assertForbidden();
+        $this->actingAs($student)->patch(route('enrollment-notes.update', $note), [
+            'body' => '受講生による不正更新',
+        ])->assertForbidden();
+        $this->actingAs($student)->delete(route('enrollment-notes.destroy', $note))->assertForbidden();
+        $this->assertDatabaseHas('enrollment_notes', ['id' => $note->id]);
+    }
+
+    public function test_notes_remain_in_database_when_parent_enrollment_soft_deleted(): void
+    {
+        // Arrange: 親 Enrollment を SoftDelete する前にメモを作成
+        $student = User::factory()->student()->create();
+        $coach = User::factory()->coach()->create();
+        $enrollment = Enrollment::factory()->for($student)->learning()->create();
+        $this->assignCoach($coach, $enrollment->certification);
+        $note = EnrollmentNote::factory()->forEnrollment($enrollment)->forAuthor($coach)->create();
+
+        // Act
+        $this->actingAs($student)->delete(route('enrollments.destroy', $enrollment))->assertRedirect();
+        $this->assertSoftDeleted('enrollments', ['id' => $enrollment->id]);
+
+        // Assert: 画面から除外されるだけで、メモ行自体は物理削除されず DB に残る(業務記録は保持する仕様)
+        $this->assertDatabaseHas('enrollment_notes', ['id' => $note->id]);
+    }
+
     private function assignCoach(User $coach, Certification $certification): void
     {
         CertificationCoachAssignment::factory()->create([
