@@ -34,6 +34,10 @@ final class DestroyAction
         DB::transaction(function () use ($enrollment) {
             $user = $enrollment->user;
 
+            // 個人学習目標(EnrollmentGoal)は SoftDelete 非対応(物理削除のみ)のため、
+            // 親 Enrollment の SoftDelete に連動して明示的に削除する(S-B-05 要件)。
+            $enrollment->goals()->delete();
+
             $enrollment->delete();
 
             $this->defaultEnrollmentService->resolveAfterStatusChange($user, $enrollment);
