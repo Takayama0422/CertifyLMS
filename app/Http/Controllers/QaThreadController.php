@@ -64,9 +64,11 @@ class QaThreadController extends Controller
 
     public function show(QaThread $thread): View
     {
-        $this->authorize('view', $thread);
-
+        // 認可判定(Policy::visible)が $thread->certification を遅延ロードするため、先に eager load して
+        // おくことで同じ資格を 2 回引かないようにする
         $thread->load(['user', 'certification', 'replies.user'])->loadCount('replies');
+
+        $this->authorize('view', $thread);
 
         return view('qa-thread.show', ['thread' => $thread]);
     }
@@ -106,7 +108,7 @@ class QaThreadController extends Controller
 
         return redirect()
             ->route('qa-board.show', $thread)
-            ->with('success', '質問を解決済にしました。');
+            ->with('success', '解決済にしました。');
     }
 
     public function unresolve(QaThread $thread, UnresolveAction $action): RedirectResponse
@@ -117,7 +119,7 @@ class QaThreadController extends Controller
 
         return redirect()
             ->route('qa-board.show', $thread)
-            ->with('success', '質問を未解決に戻しました。');
+            ->with('success', '未解決に戻しました。');
     }
 
     /**

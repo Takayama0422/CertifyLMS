@@ -25,7 +25,7 @@ class ResolveUnresolveTest extends TestCase
         $response = $this->actingAs($author)->post(route('qa-board.resolve', $thread));
 
         $response->assertRedirect(route('qa-board.show', $thread));
-        $response->assertSessionHas('success', '質問を解決済にしました。');
+        $response->assertSessionHas('success', '解決済にしました。');
         $fresh = $thread->fresh();
         $this->assertSame('resolved', $fresh->status->value);
         $this->assertNotNull($fresh->resolved_at);
@@ -39,7 +39,7 @@ class ResolveUnresolveTest extends TestCase
         $response = $this->actingAs($author)->post(route('qa-board.unresolve', $thread));
 
         $response->assertRedirect(route('qa-board.show', $thread));
-        $response->assertSessionHas('success', '質問を未解決に戻しました。');
+        $response->assertSessionHas('success', '未解決に戻しました。');
         $fresh = $thread->fresh();
         $this->assertSame('open', $fresh->status->value);
         $this->assertNull($fresh->resolved_at);

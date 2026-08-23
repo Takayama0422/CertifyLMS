@@ -16,9 +16,13 @@ use App\Policies\Concerns\ChecksQaThreadVisibility;
  * - 投稿: 受講生のみ。「対象資格が公開中であること」は入力検証(`QaThread/StoreRequest` の `exists` ルール)側の
  *   責務とし、ここでは「そもそも投稿という操作ができるロールか」のみを判定する(create 時点では対象資格が
  *   route パラメータではなく入力値のため、Model インスタンスを引数に取れない)
- * - 編集 / 削除(自己) / 解決マーク切替: 投稿者本人(受講生)のみ、かつ閲覧可能であること
- * - 削除(モデレーション): 管理者のみ。回答 0 件の制約は課さない(`moderateDelete` は `delete` と別 ability にして
- *   自己削除の業務規則(App\UseCases\QaThread\DestroyAction の回答 0 件ガード)と混同しないようにする)
+ * - 編集 / 解決マーク切替: 投稿者本人(受講生)のみ、かつ閲覧可能であること
+ * - 削除: 投稿者本人(受講生、かつ閲覧可能であること) または 管理者。
+ *   Blade 側は管理者・非管理者を問わず `can('delete', $thread)` で削除ボタンの表示可否を判定するため、
+ *   ここは常に「削除ボタンを見せてよいか」を返す。実際の削除処理の業務規則(投稿者本人 = 回答 0 件のみ、
+ *   管理者 = 件数を問わない)は `App\UseCases\QaThread\DestroyAction` / `AdminDestroyAction` 側で分岐する。
+ *   `moderateDelete` は管理者ルート(`QaThreadModerationController::destroy`)が実際に認可する際に使う、
+ *   管理者専用の別 ability(自己削除の業務規則と混同しないため)
  */
 class QaThreadPolicy
 {
@@ -46,6 +50,10 @@ class QaThreadPolicy
 
     public function delete(User $auth, QaThread $thread): bool
     {
+        if ($auth->role === UserRole::Admin) {
+            return true;
+        }
+
         return $this->isOwner($auth, $thread) && $this->visible($auth, $thread);
     }
 

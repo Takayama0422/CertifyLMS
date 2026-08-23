@@ -37,9 +37,11 @@ class QaThreadModerationController extends Controller
 
     public function show(QaThread $thread): View
     {
-        $this->authorize('view', $thread);
-
+        // 認可判定(Policy::visible、管理者は常に true)が $thread->certification を遅延ロードするため、
+        // 先に eager load しておくことで同じ資格を 2 回引かないようにする
         $thread->load(['user', 'certification', 'replies.user'])->loadCount('replies');
+
+        $this->authorize('view', $thread);
 
         return view('qa-thread.show', ['thread' => $thread]);
     }

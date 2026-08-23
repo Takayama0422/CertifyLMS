@@ -11,10 +11,12 @@ use App\Models\Enrollment;
 use App\Models\LearningSession;
 use App\Models\Part;
 use App\Models\Plan;
+use App\Models\QaThread;
 use App\Models\Section;
 use App\Models\User;
 use App\Services\EnrollmentStatsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
@@ -114,6 +116,32 @@ class DashboardControllerTest extends TestCase
         $response->assertOk();
         $response->assertSee(route('enrollments.show', $enrollment->id));
         $response->assertSee(route('learning.enrollments.show', $enrollment->id));
+    }
+
+    /**
+     * レビュー指摘 9: コーチダッシュボードの「未回答 質問」カードが実データで描画されることを検証する
+     * (`FetchCoachDashboardAction::fetchUnansweredQaCount` / `fetchRecentUnansweredQaThreads` の回帰)。
+     * 例外時は安全装置(`HasDashboardSafeFetch`)が握り潰して空文表示に切り替わるため、壊れても
+     * 一覧テストの assertOk() だけでは気づけない。
+     */
+    public function test_coach_dashboard_renders_unanswered_qa_thread_from_real_data(): void
+    {
+        $coach = User::factory()->coach()->inProgress()->create();
+        $cert = Certification::factory()->published()->create(['name' => '基本情報技術者']);
+        $cert->coaches()->attach($coach->id, [
+            'id' => (string) Str::ulid(),
+            'assigned_by_user_id' => User::factory()->admin()->create()->id,
+            'assigned_at' => now(),
+            'unassigned_at' => null,
+        ]);
+        $thread = QaThread::factory()->for($cert)->open()->create(['title' => '未回答の質問タイトル']);
+
+        $response = $this->actingAs($coach)->get(route('dashboard.index'));
+
+        $response->assertOk();
+        $response->assertSee('未回答の質問タイトル');
+        $response->assertSee(route('qa-board.show', $thread));
+        $response->assertDontSee('未回答 Q&A を取得できませんでした');
     }
 
     public function test_admin_dashboard_renders_even_when_kpi_service_throws(): void
