@@ -57,6 +57,21 @@ class IndexTest extends TestCase
         $response->assertDontSee('10 回パック');
     }
 
+    public function test_keyword_filter_does_not_match_description(): void
+    {
+        $admin = User::factory()->admin()->create();
+        MeetingPack::factory()->published()->create([
+            'name' => '5 回パック',
+            'description' => 'これは限定キャンペーン向けの説明文です',
+        ]);
+
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.index', ['keyword' => '限定キャンペーン']));
+
+        $response->assertOk();
+        $plans = $response->viewData('plans');
+        $this->assertSame(0, $plans->total());
+    }
+
     #[DataProvider('statusFilterCases')]
     public function test_status_filter_returns_only_specified_status(string $status, string $expectedName, array $hiddenNames): void
     {

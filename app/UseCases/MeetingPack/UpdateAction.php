@@ -25,7 +25,7 @@ final class UpdateAction
                 'meeting_count' => $validated['meeting_count'],
                 'price' => $validated['price'],
                 'stripe_price_id' => $validated['stripe_price_id'] ?? null,
-                'sort_order' => $validated['sort_order'] ?? 0,
+                'sort_order' => $validated['sort_order'] ?? $meetingPack->sort_order,
                 'updated_by_user_id' => $admin->id,
             ]);
 

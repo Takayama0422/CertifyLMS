@@ -46,6 +46,20 @@ class DestroyTest extends TestCase
         $this->assertDatabaseHas('meeting_packs', ['id' => $pack->id]);
     }
 
+    public function test_html_request_redirects_back_with_flash_error_on_conflict(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $pack = MeetingPack::factory()->published()->create();
+
+        $response = $this->actingAs($admin)
+            ->from(route('admin.meeting-packs.show', $pack))
+            ->delete(route('admin.meeting-packs.destroy', $pack));
+
+        $response->assertRedirect(route('admin.meeting-packs.show', $pack));
+        $response->assertSessionHas('error', '公開中の面談パックは削除できません。');
+        $this->assertDatabaseHas('meeting_packs', ['id' => $pack->id]);
+    }
+
     public function test_coach_cannot_delete(): void
     {
         $coach = User::factory()->coach()->create();

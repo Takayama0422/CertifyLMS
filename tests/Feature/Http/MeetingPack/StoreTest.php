@@ -148,6 +148,44 @@ class StoreTest extends TestCase
         ];
     }
 
+    #[DataProvider('sortOrderBoundaryCases')]
+    public function test_sort_order_boundaries(int $value, bool $valid): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $response = $this->actingAs($admin)->post(route('admin.meeting-packs.store'), $this->payload(['sort_order' => $value]));
+
+        if ($valid) {
+            $response->assertSessionDoesntHaveErrors('sort_order');
+        } else {
+            $response->assertSessionHasErrors('sort_order');
+        }
+    }
+
+    /**
+     * @return array<string, array{int, bool}>
+     */
+    public static function sortOrderBoundaryCases(): array
+    {
+        return [
+            '-1 は不可' => [-1, false],
+            '0 は可' => [0, true],
+        ];
+    }
+
+    public function test_stripe_price_id_max_length_is_255(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)
+            ->post(route('admin.meeting-packs.store'), $this->payload(['stripe_price_id' => str_repeat('a', 256)]))
+            ->assertSessionHasErrors('stripe_price_id');
+
+        $this->actingAs($admin)
+            ->post(route('admin.meeting-packs.store'), $this->payload(['stripe_price_id' => str_repeat('a', 255)]))
+            ->assertSessionDoesntHaveErrors('stripe_price_id');
+    }
+
     public function test_meeting_count_is_required(): void
     {
         $admin = User::factory()->admin()->create();

@@ -44,6 +44,20 @@ class PublishTest extends TestCase
         $response->assertStatus(409);
     }
 
+    public function test_html_request_redirects_back_with_flash_error_on_conflict(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $pack = MeetingPack::factory()->published()->create();
+
+        $response = $this->actingAs($admin)
+            ->from(route('admin.meeting-packs.show', $pack))
+            ->post(route('admin.meeting-packs.publish', $pack));
+
+        $response->assertRedirect(route('admin.meeting-packs.show', $pack));
+        $response->assertSessionHas('error', '下書き状態の面談パックのみ公開できます。');
+        $this->assertSame('published', $pack->fresh()->status->value);
+    }
+
     public function test_coach_cannot_publish(): void
     {
         $coach = User::factory()->coach()->create();
