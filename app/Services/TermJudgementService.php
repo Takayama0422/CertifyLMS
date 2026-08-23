@@ -26,7 +26,7 @@ final class TermJudgementService
     {
         $hasActiveMock = MockExamSession::query()
             ->where('enrollment_id', $enrollment->id)
-            ->whereIn('status', ['in_progress', 'submitted', 'graded', 'canceled'])
+            ->whereIn('status', ['in_progress', 'submitted', 'graded'])
             ->exists();
 
         $newTerm = $hasActiveMock ? TermType::MockPractice : TermType::BasicLearning;
