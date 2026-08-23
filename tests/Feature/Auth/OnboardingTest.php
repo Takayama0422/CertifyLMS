@@ -206,6 +206,29 @@ class OnboardingTest extends TestCase
         ]);
     }
 
+    public function test_user_can_login_again_after_logout_following_onboarding(): void
+    {
+        $invitation = $this->freshInvitation();
+        $email = $invitation->user->email;
+
+        $this->post($this->postUrl($invitation), [
+            'name' => '受講太郎',
+            'password' => 'secret-pass',
+            'password_confirmation' => 'secret-pass',
+        ]);
+
+        $this->post('/logout');
+        $this->assertGuest();
+
+        $response = $this->post('/login', [
+            'email' => $email,
+            'password' => 'secret-pass',
+        ]);
+
+        $response->assertRedirect(config('fortify.home'));
+        $this->assertAuthenticatedAs($invitation->user->fresh());
+    }
+
     public function test_store_does_not_create_new_user_row(): void
     {
         $invitation = $this->freshInvitation();
