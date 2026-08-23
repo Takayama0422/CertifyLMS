@@ -192,6 +192,24 @@ class BrowseControllerTest extends TestCase
             ->assertNotFound();
     }
 
+    public function test_show_section_404_when_certification_archived_does_not_start_learning_session(): void
+    {
+        [$student, $part] = $this->buildArchivedCertificationPart();
+        $chapter = Chapter::factory()->for($part)->create(['status' => ContentStatus::Published->value]);
+        $section = Section::factory()->for($chapter)->create([
+            'status' => ContentStatus::Published->value,
+            'body' => '# テスト本文',
+        ]);
+
+        $response = $this->actingAs($student)->get(route('learning.sections.show', $section));
+
+        $response->assertNotFound();
+        $this->assertDatabaseMissing('learning_sessions', [
+            'user_id' => $student->id,
+            'section_id' => $section->id,
+        ]);
+    }
+
     /**
      * @return array{0: User, 1: Certification}
      */
