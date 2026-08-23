@@ -169,7 +169,7 @@ class EnrollmentController extends Controller
         $action($enrollment, $request->validated());
 
         return redirect()
-            ->route('dashboard.index')
+            ->route('enrollments.show', $enrollment)
             ->with('success', '目標受験日を更新しました。');
     }
 
