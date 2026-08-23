@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Requests\Auth;
 
+use App\Actions\Fortify\PasswordValidationRules;
 use App\Enums\UserRole;
 use App\Models\Invitation;
 use Illuminate\Foundation\Http\FormRequest;
@@ -16,6 +17,8 @@ use Illuminate\Foundation\Http\FormRequest;
  */
 class OnboardingRequest extends FormRequest
 {
+    use PasswordValidationRules;
+
     public function authorize(): bool
     {
         return true;
@@ -29,7 +32,7 @@ class OnboardingRequest extends FormRequest
         $rules = [
             'name' => ['required', 'string', 'max:50'],
             'bio' => ['nullable', 'string', 'max:1000'],
-            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            'password' => $this->passwordRules(),
         ];
 
         if ($this->invitedRole() === UserRole::Coach) {
