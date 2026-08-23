@@ -11,7 +11,9 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Certificate;
 use App\Models\Certification;
+use App\Models\CertificationCoachAssignment;
 use App\Models\Enrollment;
+use App\Models\EnrollmentNote;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -67,9 +69,11 @@ final class EnrollmentSeeder extends Seeder
         }
 
         $admin = User::query()->where('role', UserRole::Admin->value)->orderBy('created_at')->first();
+        $coach1 = User::query()->where('email', 'coach@certify-lms.test')->first();
+        $coach2 = User::query()->where('email', 'coach2@certify-lms.test')->first();
 
         if ($fixedStudent !== null) {
-            $this->enrollFixedStudent($fixedStudent, $publishedCertifications, $admin);
+            $this->enrollFixedStudent($fixedStudent, $publishedCertifications, $admin, $coach1, $coach2);
         }
 
         $this->enrollDemoStudents($demoStudents, $publishedCertifications, $admin);
@@ -125,7 +129,7 @@ final class EnrollmentSeeder extends Seeder
      *
      * @param Collection<int, Certification> $publishedCerts
      */
-    private function enrollFixedStudent(User $student, $publishedCerts, ?User $admin): void
+    private function enrollFixedStudent(User $student, $publishedCerts, ?User $admin, ?User $coach1, ?User $coach2): void
     {
         $targets = $publishedCerts->take(4);
 
@@ -151,6 +155,33 @@ final class EnrollmentSeeder extends Seeder
                     'changed_at' => now()->subDays(30 - $index * 10),
                     'changed_reason' => '新規登録',
                 ],
+            );
+
+            // S-B-07: coach1 / coach2 / admin が固定 student の Enrollment にメモを残す(他コーチ越境拒否シナリオ用)。
+            // CertificationSeeder の割当(coach1=publishedCerts[0,1,2] / coach2=publishedCerts[2,3,4])に沿わせ、
+            // 1 件目/2 件目は coach1 のみ、3 件目(両コーチ担当)は coach1+coach2 混在、4 件目は coach2 のみが自然な形。
+            $this->seedFixedStudentNotes($enrollment, $index, $admin, $coach1, $coach2);
+        }
+    }
+
+    /**
+     * 固定 student の各 Enrollment にコーチメモを投入する(担当割当に沿った自然な組み合わせ)。
+     */
+    private function seedFixedStudentNotes(Enrollment $enrollment, int $index, ?User $admin, ?User $coach1, ?User $coach2): void
+    {
+        $authorsByIndex = [
+            0 => array_filter([$coach1]),
+            1 => array_filter([$coach1, $admin]),
+            2 => array_filter([$coach1, $coach2]),
+            3 => array_filter([$coach2]),
+        ];
+
+        foreach ($authorsByIndex[$index] ?? [] as $author) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $author->id],
+                ['body' => $author->id === $admin?->id
+                    ? '運営として学習状況を確認。特に問題なし。'
+                    : "面談以外の日常観察メモ({$author->name})。\nQ&A での質問頻度が高く、意欲的に取り組んでいる印象です。"],
             );
         }
     }
@@ -205,6 +236,37 @@ final class EnrollmentSeeder extends Seeder
             if ($pattern['state'] === 'passed') {
                 $this->issueCertificate($enrollment, $passedAt);
             }
+
+            // S-B-07: 担当 coach が割り当てられている資格 Enrollment にはコーチメモを 1-2 件散らす(coach 動線の即時確認用)。
+            $this->seedDemoStudentNotes($enrollment, $i, $admin);
+        }
+    }
+
+    /**
+     * demo 受講生の Enrollment に、当該資格の担当コーチ(存在すれば)によるメモを 1-2 件投入する。
+     * 3 件に 1 件は admin のメモも重ねる(コーチ + 管理者混在の閲覧確認用)。
+     */
+    private function seedDemoStudentNotes(Enrollment $enrollment, int $index, ?User $admin): void
+    {
+        $assignedCoachIds = CertificationCoachAssignment::query()
+            ->where('certification_id', $enrollment->certification_id)
+            ->whereNull('unassigned_at')
+            ->pluck('user_id');
+
+        $assignedCoaches = User::query()->whereIn('id', $assignedCoachIds)->get();
+
+        foreach ($assignedCoaches as $coach) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $coach->id],
+                ['body' => "学習進捗を確認しました({$coach->name})。次回の面談で理解度をすり合わせたいです。"],
+            );
+        }
+
+        if ($admin !== null && $index % 3 === 0) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $admin->id],
+                ['body' => '運営として学習状況を確認。特に問題なし。'],
+            );
         }
     }
 
