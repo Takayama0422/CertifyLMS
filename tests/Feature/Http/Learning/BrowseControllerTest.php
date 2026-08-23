@@ -134,15 +134,9 @@ class BrowseControllerTest extends TestCase
         $response->assertForbidden();
     }
 
-    public function test_show_section_forbidden_for_non_enrolled_student_does_not_start_learning_session(): void
+    public function test_show_section_forbidden_for_failed_enrollment_does_not_start_learning_session(): void
     {
-        $student = User::factory()->student()->inProgress()->create();
-        $part = Part::factory()->create(['status' => ContentStatus::Published->value]);
-        $chapter = Chapter::factory()->for($part)->create(['status' => ContentStatus::Published->value]);
-        $section = Section::factory()->for($chapter)->create([
-            'status' => ContentStatus::Published->value,
-            'body' => '# テスト本文',
-        ]);
+        [$student, $certification, $section] = $this->buildSectionFor(EnrollmentStatus::Failed);
 
         $response = $this->actingAs($student)->get(route('learning.sections.show', $section));
 
