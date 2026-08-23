@@ -109,4 +109,24 @@ class StoreTest extends TestCase
 
         $response->assertRedirect(route('login'));
     }
+
+    /**
+     * レビュー指摘 12: 修了済受講生のアバター登録が未検証だったため追加する。
+     * 設定画面自体は修了済受講生も閲覧できる(`EditTest::test_graduated_student_can_view_own_profile`)ため、
+     * アイコン画像アップロードも同様に利用できることを担保する。
+     */
+    public function test_graduated_student_can_upload_avatar(): void
+    {
+        Storage::fake('public');
+        $graduated = User::factory()->student()->graduated()->create(['avatar_url' => null]);
+
+        $response = $this->actingAs($graduated)->post(route('settings.avatar.store'), [
+            'avatar' => UploadedFile::fake()->image('avatar.png', 200, 200),
+        ]);
+
+        $response->assertRedirect(route('settings.profile.edit'));
+        $fresh = $graduated->fresh();
+        $this->assertNotNull($fresh->avatar_url);
+        Storage::disk('public')->assertExists(ltrim(str_replace('/storage/', '', $fresh->avatar_url), '/'));
+    }
 }

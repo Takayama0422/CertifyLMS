@@ -50,4 +50,23 @@ class DestroyTest extends TestCase
 
         $response->assertRedirect(route('login'));
     }
+
+    /**
+     * レビュー指摘 12: 修了済受講生のアバター削除が未検証だったため追加する。
+     */
+    public function test_graduated_student_can_delete_own_avatar(): void
+    {
+        Storage::fake('public');
+        $graduated = User::factory()->student()->graduated()->create();
+        $this->actingAs($graduated)->post(route('settings.avatar.store'), [
+            'avatar' => UploadedFile::fake()->image('avatar.png'),
+        ]);
+        $path = ltrim(str_replace('/storage/', '', $graduated->fresh()->avatar_url), '/');
+
+        $response = $this->actingAs($graduated)->delete(route('settings.avatar.destroy'));
+
+        $response->assertRedirect(route('settings.profile.edit'));
+        $this->assertNull($graduated->fresh()->avatar_url);
+        Storage::disk('public')->assertMissing($path);
+    }
 }
