@@ -44,6 +44,20 @@ class PublishTest extends TestCase
         $response->assertStatus(409);
     }
 
+    public function test_html_request_redirects_back_with_flash_error_on_conflict(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $plan = Plan::factory()->published()->create();
+
+        $response = $this->actingAs($admin)
+            ->from(route('admin.plans.show', $plan))
+            ->post(route('admin.plans.publish', $plan));
+
+        $response->assertRedirect(route('admin.plans.show', $plan));
+        $response->assertSessionHas('error', '下書き状態のプランのみ公開できます。');
+        $this->assertSame('published', $plan->fresh()->status->value);
+    }
+
     public function test_coach_cannot_publish(): void
     {
         $coach = User::factory()->coach()->create();

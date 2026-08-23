@@ -27,7 +27,7 @@ class UpdateRequest extends FormRequest
             'description' => ['nullable', 'string', 'max:2000'],
             'duration_days' => ['required', 'integer', 'min:1', 'max:3650'],
             'default_meeting_quota' => ['required', 'integer', 'min:0', 'max:1000'],
-            'sort_order' => ['nullable', 'integer'],
+            'sort_order' => ['nullable', 'integer', 'min:0'],
         ];
     }
 

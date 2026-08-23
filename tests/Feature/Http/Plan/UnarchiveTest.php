@@ -44,6 +44,20 @@ class UnarchiveTest extends TestCase
         $response->assertStatus(409);
     }
 
+    public function test_html_request_redirects_back_with_flash_error_on_conflict(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $plan = Plan::factory()->draft()->create();
+
+        $response = $this->actingAs($admin)
+            ->from(route('admin.plans.show', $plan))
+            ->post(route('admin.plans.unarchive', $plan));
+
+        $response->assertRedirect(route('admin.plans.show', $plan));
+        $response->assertSessionHas('error', 'アーカイブ状態のプランのみ下書きへ戻せます。');
+        $this->assertSame('draft', $plan->fresh()->status->value);
+    }
+
     public function test_coach_cannot_unarchive(): void
     {
         $coach = User::factory()->coach()->create();

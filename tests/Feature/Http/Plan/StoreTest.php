@@ -147,6 +147,31 @@ class StoreTest extends TestCase
         ];
     }
 
+    #[DataProvider('sortOrderBoundaryCases')]
+    public function test_sort_order_boundaries(int $value, bool $valid): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $response = $this->actingAs($admin)->post(route('admin.plans.store'), $this->payload(['sort_order' => $value]));
+
+        if ($valid) {
+            $response->assertSessionDoesntHaveErrors('sort_order');
+        } else {
+            $response->assertSessionHasErrors('sort_order');
+        }
+    }
+
+    /**
+     * @return array<string, array{int, bool}>
+     */
+    public static function sortOrderBoundaryCases(): array
+    {
+        return [
+            '-1 は不可' => [-1, false],
+            '0 は可' => [0, true],
+        ];
+    }
+
     public function test_duration_days_is_required(): void
     {
         $admin = User::factory()->admin()->create();

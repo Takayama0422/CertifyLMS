@@ -24,7 +24,7 @@ final class UpdateAction
                 'description' => $validated['description'] ?? null,
                 'duration_days' => $validated['duration_days'],
                 'default_meeting_quota' => $validated['default_meeting_quota'],
-                'sort_order' => $validated['sort_order'] ?? 0,
+                'sort_order' => $validated['sort_order'] ?? $plan->sort_order,
                 'updated_by_user_id' => $admin->id,
             ]);
 
