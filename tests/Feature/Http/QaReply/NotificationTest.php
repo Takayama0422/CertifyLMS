@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature\Notification;
+namespace Tests\Feature\Http\QaReply;
 
 use App\Models\Certification;
 use App\Models\CertificationCoachAssignment;
@@ -16,7 +16,7 @@ use Tests\TestCase;
  * 質問掲示板の回答投稿(`POST /qa-board/{thread}/replies`)が `qa_reply_received` 通知を
  * スレッド投稿者へ発火することを検証する(要件シート S8)。
  */
-class QaReplyReceivedNotificationTest extends TestCase
+class NotificationTest extends TestCase
 {
     use RefreshDatabase;
 

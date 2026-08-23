@@ -6,6 +6,8 @@ namespace App\Http\Controllers;
 
 use App\Enums\EnrollmentStatus;
 use App\Enums\MeetingStatus;
+use App\Events\MeetingCanceled;
+use App\Events\MeetingReserved;
 use App\Exceptions\MeetingQuota\InsufficientMeetingQuotaException;
 use App\Exceptions\Mentoring\MeetingAlreadyStartedException;
 use App\Exceptions\Mentoring\MeetingNoAvailableCoachException;
@@ -15,17 +17,15 @@ use App\Http\Requests\Meeting\IndexAsCoachRequest;
 use App\Http\Requests\Meeting\IndexRequest;
 use App\Http\Requests\Meeting\StoreRequest;
 use App\Http\Requests\Meeting\UpsertMemoRequest;
+use App\Listeners\SendMeetingPartyNotifications;
 use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\Meeting;
 use App\Models\MeetingMemo;
 use App\Models\User;
-use App\Notifications\MeetingCanceledNotification;
-use App\Notifications\MeetingReservedNotification;
 use App\Services\CoachMeetingLoadService;
 use App\Services\MeetingAvailabilityService;
 use App\Services\MeetingQuotaService;
-use App\Services\NotificationRecipientPolicy;
 use App\UseCases\MeetingQuota\ConsumeQuotaAction;
 use App\UseCases\MeetingQuota\RefundQuotaAction;
 use Carbon\Carbon;
@@ -41,8 +41,14 @@ use Illuminate\View\View;
  *
  * 受講生視点(index / show / create / store / cancel / fetchAvailability)とコーチ視点
  * (indexAsCoach / upsertMemo)を 1 Controller に集約する。予約 / キャンセル / メモ保存の
- * 状態変更系は残面談回数の消費・返却、通知発火、トランザクション境界を method 内で扱い、
+ * 状態変更系は残面談回数の消費・返却、トランザクション境界を method 内で扱い、
  * 取得系はクエリ組み立てを method 内で行う。認可は $this->authorize() または FormRequest::authorize()。
+ *
+ * 通知発火は Controller の責務に含めない。予約 / キャンセルの成立を `MeetingReserved` /
+ * `MeetingCanceled` イベントとして発火するのみで、当事者への配信は `SendMeetingPartyNotifications`
+ * リスナーが担う(Seeder・バッチ等、本 Controller 以外の経路から予約 / キャンセルしても通知が飛ぶように)。
+ *
+ * @see SendMeetingPartyNotifications
  */
 class MeetingController extends Controller
 {
@@ -219,7 +225,7 @@ class MeetingController extends Controller
             return $meeting->fresh();
         });
 
-        $this->notifyMeetingParties($meeting, fn (User $recipient) => new MeetingReservedNotification($meeting));
+        event(new MeetingReserved($meeting));
 
         return redirect()
             ->route('meetings.show', $meeting)
@@ -256,28 +262,11 @@ class MeetingController extends Controller
         });
 
         $meeting->refresh();
-        $this->notifyMeetingParties($meeting, fn (User $recipient) => new MeetingCanceledNotification($meeting));
+        event(new MeetingCanceled($meeting));
 
         return redirect()
             ->route('meetings.show', $meeting)
             ->with('success', '面談をキャンセルしました。面談回数を返却しました。');
-    }
-
-    /**
-     * 面談の当事者(受講生 + 担当コーチ)へ、配信対象の除外規則を通したうえで通知を配信する。
-     * 予約(store)/ キャンセル(cancel)の両方で使う共通ヘルパ。
-     *
-     * @param callable(User): (MeetingReservedNotification|MeetingCanceledNotification) $notificationFactory
-     */
-    private function notifyMeetingParties(Meeting $meeting, callable $notificationFactory): void
-    {
-        $meeting->loadMissing(['student', 'coach']);
-
-        foreach ([$meeting->student, $meeting->coach] as $recipient) {
-            if ($recipient !== null && NotificationRecipientPolicy::eligibleForEventNotification($recipient)) {
-                $recipient->notify($notificationFactory($recipient));
-            }
-        }
     }
 
     /**

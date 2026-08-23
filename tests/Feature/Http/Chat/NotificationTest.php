@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Tests\Feature\Notification;
+namespace Tests\Feature\Http\Chat;
 
 use App\Models\Certification;
 use App\Models\ChatMember;
@@ -18,7 +18,7 @@ use Tests\TestCase;
  * chat メッセージ送信(`POST /chat-rooms/{room}/messages`)が `chat_message_received` 通知を
  * 発火することを検証する(要件シート S8)。受信者は送信者以外のルーム参加者(相手方)。
  */
-class ChatMessageReceivedNotificationTest extends TestCase
+class NotificationTest extends TestCase
 {
     use RefreshDatabase;
 
