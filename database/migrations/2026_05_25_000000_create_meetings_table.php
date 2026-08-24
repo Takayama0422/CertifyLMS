@@ -41,11 +41,6 @@ return new class extends Migration
             // 受講生別履歴一覧 / 自動完了 Schedule Command 高速化のための補助 INDEX
             $table->index(['student_id', 'scheduled_at']);
             $table->index(['status', 'scheduled_at']);
-
-            // 同コーチ×同時刻の二重予約を DB レベルで禁止する UNIQUE(コメントで謳っていたが未実装だった)。
-            // status を問わず効くため、canceled 済の枠にも同じ (coach_id, scheduled_at) では INSERT できない
-            // (別時刻へ予約し直す運用のため、再利用不可でも問題ない)。
-            $table->unique(['coach_id', 'scheduled_at']);
         });
     }
 

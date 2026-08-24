@@ -22,6 +22,10 @@ use Illuminate\Routing\Redirector;
  * (coach_id, scheduled_at) UNIQUE 制約への同時 INSERT 競合を実際に発生させる。
  *
  * 引数: studentId enrollmentId scheduledAtIso topic barrierFile outFile
+ *
+ * outFile には 1 行目に「本処理(store())へ入った瞬間の microtime」、2 行目に結果文字列を書く。
+ * 呼び出し側テストは 2 プロセスの 1 行目同士の差が十分小さいことを検証し、
+ * 実際に競合したこと(片方が完了した後に他方が逐次実行されたのではないこと)を確認する。
  */
 
 require __DIR__.'/../../vendor/autoload.php';
@@ -37,6 +41,8 @@ $target = (float) trim((string) file_get_contents($barrierFile));
 while (microtime(true) < $target) {
     usleep(500);
 }
+
+$enteredAt = microtime(true);
 
 try {
     $enrollment = Enrollment::query()->with('user')->findOrFail($enrollmentId);
@@ -78,7 +84,7 @@ try {
         $app->make(ConsumeQuotaAction::class),
     );
 
-    file_put_contents($outFile, 'OK');
+    file_put_contents($outFile, $enteredAt.PHP_EOL.'OK');
 } catch (Throwable $e) {
-    file_put_contents($outFile, get_class($e).': '.$e->getMessage());
+    file_put_contents($outFile, $enteredAt.PHP_EOL.get_class($e).': '.$e->getMessage());
 }
