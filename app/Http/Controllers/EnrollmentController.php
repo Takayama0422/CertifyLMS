@@ -10,8 +10,8 @@ use App\Http\Requests\Enrollment\StoreRequest;
 use App\Http\Requests\Enrollment\UpdateExamDateRequest;
 use App\Models\Certification;
 use App\Models\Enrollment;
-use App\Services\LearningProgressService;
 use App\UseCases\Enrollment\DestroyAction;
+use App\UseCases\Enrollment\FetchProgressForViewerAction;
 use App\UseCases\Enrollment\IndexAction;
 use App\UseCases\Enrollment\ResumeAction;
 use App\UseCases\Enrollment\ShowAction;
@@ -95,20 +95,14 @@ class EnrollmentController extends Controller
     public function show(
         Enrollment $enrollment,
         ShowAction $action,
-        LearningProgressService $progressService,
+        FetchProgressForViewerAction $progressAction,
     ): View {
         $this->authorize('view', $enrollment);
 
         $action($enrollment);
 
         $user = auth()->user();
-        $progress = null;
-
-        // staff(admin / coach)時のみ進捗集計を行う
-        if (in_array($user->role, [UserRole::Coach, UserRole::Admin], true)) {
-            $enrollment->loadMissing(['user']);
-            $progress = $progressService->summarize($enrollment);
-        }
+        $progress = $progressAction($enrollment, $user);
 
         // admin 時のみ状態遷移ログを eager-load(管理画面の監査ビュー)
         if ($user->role === UserRole::Admin) {

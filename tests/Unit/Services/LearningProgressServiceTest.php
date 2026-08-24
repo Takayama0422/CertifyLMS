@@ -119,6 +119,119 @@ class LearningProgressServiceTest extends TestCase
         $this->assertSame(2, $summary->partsTotal);
     }
 
+    /**
+     * コードレビュー指摘 9(T-A-03)の回帰テスト。
+     *
+     * 既存の `test_summarize_excludes_draft_content_from_totals` は Part/Chapter/Section を
+     * すべて非公開にしているため、3 つの絞り込み(parts.status / chapters.status / sections.status)の
+     * うちどれか 1 つでも効いていれば除外され、どの条件が効いているか判別できない。
+     * ここでは「公開 Part 配下の非公開 Chapter」を単独で置き、chapters.status の絞り込みだけを検証する。
+     */
+    public function test_summarize_excludes_sections_under_draft_chapter_even_when_part_is_published(): void
+    {
+        $enrollment = Enrollment::factory()->learning()->create();
+        [, $certification] = $this->buildCertificationTree($enrollment->certification_id);
+
+        // 公開 Part 直下に非公開 Chapter を追加し、その配下には公開 Section を置く
+        // (Section 自体は公開なので、chapters.status の絞り込みが効いていなければ総数に混入する)。
+        $publishedPart = Part::factory()->published()->forCertification($certification)->create();
+        $draftChapter = Chapter::factory()->draft()->forPart($publishedPart)->create();
+        Section::factory()->published()->forChapter($draftChapter)->create();
+
+        $summary = app(LearningProgressService::class)->summarize($enrollment);
+
+        // buildCertificationTree() のベース分(Part2/Chapter3/Section4)に、公開 Part 1 件だけが加わり、
+        // 非公開 Chapter とその配下の Section は総数に含まれないはず。
+        $this->assertSame(4, $summary->sectionsTotal, '非公開 Chapter 配下の公開 Section が混入している');
+        $this->assertSame(3, $summary->chaptersTotal, '非公開 Chapter 自体が総数に混入している');
+        $this->assertSame(3, $summary->partsTotal, '公開 Part の追加分が反映されていない');
+    }
+
+    /**
+     * コードレビュー指摘 9(T-A-03)の回帰テスト。
+     * 「公開 Chapter 配下の非公開 Section」を単独で置き、sections.status の絞り込みだけを検証する。
+     */
+    public function test_summarize_excludes_draft_section_even_when_chapter_and_part_are_published(): void
+    {
+        $enrollment = Enrollment::factory()->learning()->create();
+        [$sections] = $this->buildCertificationTree($enrollment->certification_id);
+
+        // 公開 Chapter1 配下に非公開 Section を追加する。
+        $chapter1 = $sections[0]->chapter;
+        Section::factory()->draft()->forChapter($chapter1)->create();
+
+        $summary = app(LearningProgressService::class)->summarize($enrollment);
+
+        $this->assertSame(4, $summary->sectionsTotal, '非公開 Section が総数に混入している');
+        $this->assertSame(3, $summary->chaptersTotal, '非公開 Section の追加で Chapter 総数が変わってはならない');
+    }
+
+    /**
+     * コードレビュー指摘 10(T-A-03)の回帰テスト。
+     * 別の受講登録(同一資格)の読了実績が、対象の受講登録の集計に混ざらないことを検証する。
+     */
+    public function test_summarize_does_not_count_other_enrollments_progress(): void
+    {
+        $enrollment = Enrollment::factory()->learning()->create();
+        [$sections, $certification] = $this->buildCertificationTree($enrollment->certification_id);
+
+        $otherEnrollment = Enrollment::factory()->learning()->for($certification)->create();
+        foreach ($sections as $section) {
+            SectionProgress::factory()->forEnrollment($otherEnrollment)->forSection($section)->create();
+        }
+
+        $summary = app(LearningProgressService::class)->summarize($enrollment);
+
+        $this->assertSame(4, $summary->sectionsTotal);
+        $this->assertSame(0, $summary->sectionsCompleted, '他受講登録の読了実績が混ざってはならない');
+        $this->assertSame(0.0, $summary->sectionCompletionRatio);
+        $this->assertSame(0, $summary->chaptersCompleted);
+        $this->assertSame(0, $summary->partsCompleted);
+    }
+
+    /**
+     * コードレビュー指摘 10(T-A-03)の回帰テスト。
+     * 非公開 Section に対する読了実績(通常は生成され得ないデータ)が、万一存在しても
+     * 完了数に含まれないことを検証する。
+     */
+    public function test_summarize_does_not_count_progress_on_a_non_public_section(): void
+    {
+        $enrollment = Enrollment::factory()->learning()->create();
+        [, $certification] = $this->buildCertificationTree($enrollment->certification_id);
+
+        $part = Part::factory()->published()->forCertification($certification)->create();
+        $chapter = Chapter::factory()->published()->forPart($part)->create();
+        $draftSection = Section::factory()->draft()->forChapter($chapter)->create();
+        SectionProgress::factory()->forEnrollment($enrollment)->forSection($draftSection)->create();
+
+        $summary = app(LearningProgressService::class)->summarize($enrollment);
+
+        $this->assertSame(4, $summary->sectionsTotal, '非公開 Section は総数に含まれないはず');
+        $this->assertSame(0, $summary->sectionsCompleted, '非公開 Section への読了実績が完了数に混入している');
+    }
+
+    /**
+     * コードレビュー指摘 10(T-A-03)の回帰テスト。
+     * 公開 Section が 0 件の Chapter(全 Section が非公開)を完了扱いにしないことを検証する
+     * (total=0 かつ done=0 のとき `total === done` が真になり得るため、total > 0 の判定漏れを検出する)。
+     */
+    public function test_summarize_does_not_treat_chapter_with_zero_published_sections_as_completed(): void
+    {
+        $enrollment = Enrollment::factory()->learning()->create();
+        $certification = $enrollment->certification;
+
+        $part = Part::factory()->published()->forCertification($certification)->create();
+        $emptyChapter = Chapter::factory()->published()->forPart($part)->create();
+        Section::factory()->draft()->forChapter($emptyChapter)->create();
+
+        $summary = app(LearningProgressService::class)->summarize($enrollment);
+
+        $this->assertSame(1, $summary->chaptersTotal);
+        $this->assertSame(0, $summary->chaptersCompleted, '公開 Section が 0 件の Chapter を完了扱いにしてはならない');
+        $this->assertSame(1, $summary->partsTotal);
+        $this->assertSame(0, $summary->partsCompleted);
+    }
+
     public function test_batch_section_completion_ratios_returns_empty_array_for_empty_collection(): void
     {
         // Act
