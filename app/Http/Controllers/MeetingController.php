@@ -13,8 +13,9 @@ use App\Http\Requests\Meeting\UpsertMemoRequest;
 use App\Listeners\SendMeetingPartyNotifications;
 use App\Models\Enrollment;
 use App\Models\Meeting;
-use App\Services\MeetingQuotaService;
 use App\UseCases\Meeting\CancelMeetingAction;
+use App\UseCases\Meeting\CreateFallbackAction;
+use App\UseCases\Meeting\CreateFormAction;
 use App\UseCases\Meeting\FetchMeetingAvailabilityAction;
 use App\UseCases\Meeting\ListCoachMeetingsAction;
 use App\UseCases\Meeting\ListMeetingsAction;
@@ -32,7 +33,7 @@ use Illuminate\View\View;
  * 受講生視点(index / show / create / store / cancel / fetchAvailability)とコーチ視点
  * (indexAsCoach / upsertMemo)を 1 Controller に集約する。各 method はリクエスト受付 / 認可委譲 /
  * レスポンス整形のみを担い、業務ロジック・クエリ組み立ては `App\UseCases\Meeting\*` の
- * Action クラスへ委譲する(create / createFallback は認可 + 画面返却のみのため Action 化していない)。
+ * Action クラスへ委譲する。
  *
  * 通知発火は Controller の責務に含めない。予約 / キャンセルの成立を `MeetingReserved` /
  * `MeetingCanceled` イベントとして発火するのみで、当事者への配信は `SendMeetingPartyNotifications`
@@ -93,19 +94,14 @@ class MeetingController extends Controller
     /**
      * 予約画面(受講生): URL に Enrollment を含む正規ルートで表示する。
      */
-    public function create(Enrollment $enrollment, MeetingQuotaService $meetingQuota): View
+    public function create(Enrollment $enrollment, CreateFormAction $action): View
     {
         $this->authorize('create', Meeting::class);
 
         abort_unless($enrollment->user_id === auth()->id(), 403);
         abort_unless($enrollment->status === EnrollmentStatus::Learning, 403);
 
-        $enrollment->loadMissing('certification');
-
-        return view('meeting.create', [
-            'enrollment' => $enrollment,
-            'meetingsRemaining' => $meetingQuota->remaining(auth()->user()),
-        ]);
+        return view('meeting.create', $action($enrollment, auth()->user()));
     }
 
     /**
@@ -113,17 +109,10 @@ class MeetingController extends Controller
      * `resolve-default-enrollment` Middleware が default 資格に redirect するため、
      * 本 method に到達するのは default 未設定 + 残存 Enrollment が 0 件 or 2+ 件のケース。
      */
-    public function createFallback(): View
+    public function createFallback(CreateFallbackAction $action): View
     {
-        $user = auth()->user();
-        $enrollments = $user
-            ?->enrollments()
-            ->whereIn('status', [EnrollmentStatus::Learning->value, EnrollmentStatus::Passed->value])
-            ->with('certification')
-            ->get();
-
         return view('meeting.empty-state', [
-            'enrollments' => $enrollments ?? collect(),
+            'enrollments' => $action(auth()->user()),
         ]);
     }
 
