@@ -182,7 +182,7 @@ class MeetingBookingConcurrencyTest extends TestCase
                 1,
                 $oks,
                 "round {$round}: 並行予約で 2 件とも成立、または 2 件とも失敗した(A={$resultA} / B={$resultB})。".
-                '(coach_id, active_scheduled_at) UNIQUE による排他が効いていない',
+                '(coach_id, scheduled_at) UNIQUE による排他が効いていない',
             );
             $this->assertCount(
                 1,

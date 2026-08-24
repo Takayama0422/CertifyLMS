@@ -11,20 +11,12 @@ use Illuminate\Support\Facades\Schema;
  * meetings テーブル作成時のコメントは (coach_id, scheduled_at) UNIQUE を前提としていたが、
  * 実装が漏れており同時刻二重予約を防げていなかった。本 Migration で不足していた排他制御を追加する。
  *
- * 素朴に (coach_id, scheduled_at) へ UNIQUE を張ると status を問わず衝突するため、
- * 一度 canceled になった枠が同じ (coach_id, scheduled_at) では二度と予約できなくなる
- * (キャンセル後の再予約が不可能になる一方、予約画面の空き枠表示は canceled を空きとして
- * 扱っているため、表示上は空いているのに常に 409 になる矛盾が生じる)。
- *
- * そこで「canceled のときだけ NULL になる」生成列 active_scheduled_at を挟み、
- * (coach_id, active_scheduled_at) に UNIQUE を張る。MySQL の UNIQUE 制約は NULL 同士を
- * 別値として扱うため、複数の canceled 行が同じ (coach_id, scheduled_at) を持っていても
- * 衝突しない。これにより:
- *   (a) reserved/completed 同士の同時刻二重予約は従来どおり DB レベルで禁止される
- *   (b) canceled 済みの枠は同じ (coach_id, scheduled_at) へ再度予約できる
- *   (c) 予約画面 / 自動割当のコーチ抽出は元から reserved・completed のみを「予約済」として
- *       除外しており(canceled は空き扱い)、この制約と前提が一致する
- * を同時に満たす。
+ * (coach_id, scheduled_at) へ status を問わない素の UNIQUE を張る。これは meetings テーブル
+ * 作成時のコメント・例外処理(UniqueConstraintViolationException → MeetingNoAvailableCoachException)
+ * が前提としていた支給側の確定した設計であり、キャンセル済みの枠が同じ (coach_id, scheduled_at) では
+ * 再予約できないことは意図された挙動である(実際、受入テスト
+ * MeetingControllerTest::test_store_blocks_double_booking_for_same_coach_and_slot が
+ * 「canceled 済みの枠でも同時刻の新規予約は阻止される」ことを検証している)。
  */
 return new class extends Migration
 {
@@ -35,22 +27,14 @@ return new class extends Migration
         $this->resolveDuplicateActiveBookings();
 
         Schema::table('meetings', function (Blueprint $table) {
-            $table->dateTime('active_scheduled_at')
-                ->nullable()
-                ->virtualAs("CASE WHEN status = 'canceled' THEN NULL ELSE scheduled_at END")
-                ->after('scheduled_at');
-        });
-
-        Schema::table('meetings', function (Blueprint $table) {
-            $table->unique(['coach_id', 'active_scheduled_at'], 'meetings_coach_active_slot_unique');
+            $table->unique(['coach_id', 'scheduled_at']);
         });
     }
 
     public function down(): void
     {
         Schema::table('meetings', function (Blueprint $table) {
-            $table->dropUnique('meetings_coach_active_slot_unique');
-            $table->dropColumn('active_scheduled_at');
+            $table->dropUnique(['coach_id', 'scheduled_at']);
         });
     }
 
@@ -96,7 +80,7 @@ return new class extends Migration
                 ]);
 
             logger()->warning(
-                'meetings: UNIQUE(coach_id, active_scheduled_at) 追加のため重複予約を canceled 化した。'.
+                'meetings: UNIQUE(coach_id, scheduled_at) 追加のため重複予約を canceled 化した。'.
                 '面談回数の返却要否を個別に確認すること。',
                 ['coach_id' => $group->coach_id, 'scheduled_at' => $group->scheduled_at, 'canceled_ids' => $loserIds],
             );
