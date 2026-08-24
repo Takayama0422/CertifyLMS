@@ -16,14 +16,10 @@ use Illuminate\Support\Facades\DB;
 
 /**
  * 当事者(受講生 or コーチ)による面談キャンセルユースケース。
- * reserved かつ開始前のみキャンセル可。
+ * reserved かつ開始前のみキャンセル可。消費済の面談回数 1 回分を返却する。
  *
- * `MeetingCanceled` イベント発火を、状態遷移と同一の DB トランザクション境界に含める。
- *
- * NOTE: コンストラクタで RefundQuotaAction を受け取るが、抽出元の Controller 実装も
- * 本 Action と同様にこれを呼び出していなかった(面談回数の返却は実際には行われていなかった)。
- * 本チケットは振る舞いを変えない構造移動のみが対象のため、既存の(不具合に見える)挙動を
- * そのまま温存している。挙動修正は別チケットの判断に委ねる。
+ * 面談回数の返却(RefundQuotaAction)と `MeetingCanceled` イベント発火を、状態遷移と同一の
+ * DB トランザクション境界に含める。
  *
  * @see MeetingController::cancel()
  */
@@ -50,6 +46,8 @@ final class CancelMeetingAction
                 'canceled_by_user_id' => $actor->id,
                 'canceled_at' => now(),
             ]);
+
+            ($this->refundAction)($locked->student, $locked->id);
 
             event(new MeetingCanceled($locked));
         });
