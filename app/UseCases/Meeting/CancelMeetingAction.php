@@ -11,6 +11,7 @@ use App\Exceptions\Mentoring\MeetingStatusTransitionException;
 use App\Http\Controllers\MeetingController;
 use App\Models\Meeting;
 use App\Models\User;
+use App\Services\GoogleCalendar\GoogleCalendarService;
 use App\UseCases\MeetingQuota\RefundQuotaAction;
 use Illuminate\Support\Facades\DB;
 
@@ -21,12 +22,16 @@ use Illuminate\Support\Facades\DB;
  * 面談回数の返却(RefundQuotaAction)と `MeetingCanceled` イベント発火を、状態遷移と同一の
  * DB トランザクション境界に含める。
  *
+ * S-A-01: 状態遷移の確定後、Google カレンダーに登録済みの予定があれば削除する。
+ * Google 通信は DB トランザクションの外で行う(通信失敗でキャンセル成立を巻き戻さない)。
+ *
  * @see MeetingController::cancel()
  */
 final class CancelMeetingAction
 {
     public function __construct(
         private readonly RefundQuotaAction $refundAction,
+        private readonly GoogleCalendarService $googleCalendar,
     ) {}
 
     public function __invoke(Meeting $meeting, User $actor): Meeting
@@ -52,6 +57,12 @@ final class CancelMeetingAction
             event(new MeetingCanceled($locked));
         });
 
-        return $meeting->fresh();
+        $canceled = $meeting->fresh() ?? $meeting;
+
+        // DB トランザクション確定後に実行(Google 通信の失敗でキャンセル成立を巻き戻さない)。
+        // 未連携 / 未登録 / 通信失敗はすべて GoogleCalendarService 内で catch 済みの no-op。
+        $this->googleCalendar->cancelMeeting($canceled);
+
+        return $canceled;
     }
 }

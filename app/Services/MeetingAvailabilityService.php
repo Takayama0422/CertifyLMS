@@ -9,6 +9,8 @@ use App\Exceptions\Mentoring\MeetingOutOfAvailabilityException;
 use App\Models\Certification;
 use App\Models\CoachAvailability;
 use App\Models\Meeting;
+use App\Models\User;
+use App\Services\GoogleCalendar\GoogleCalendarService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 
@@ -18,9 +20,17 @@ use Illuminate\Support\Collection;
  * 受講生の予約画面が「該当資格の担当コーチ全員の有効枠 Union」を 1 日単位で取得し、
  * 既存予約済時刻 を除外して各スロットの「予約可能なコーチ数」を返す。受講生にコーチ個別は提示せず、
  * 予約確定時にコーチを自動割当する。
+ *
+ * S-A-01: 連携済コーチについては Google カレンダー側の busy 区間も 1 日分先読みし、LMS の
+ * 既存予約と同様にスロットから除外する(未連携コーチ・Google 通信失敗時は `GoogleCalendarService` が
+ * 空 Collection を返すため、このクラス側での分岐は不要 = 従来通りの空き判定にフォールバックする)。
  */
 final class MeetingAvailabilityService
 {
+    public function __construct(
+        private readonly GoogleCalendarService $googleCalendar,
+    ) {}
+
     /**
      * 指定 Certification の担当コーチ集合について、指定日 1 日分の 60 分単位空きスロットを返す。
      *
@@ -58,6 +68,11 @@ final class MeetingAvailabilityService
             ->groupBy('coach_id')
             ->map(fn ($rows) => $rows->map(fn (Meeting $m) => $m->scheduled_at->format('H:i'))->all());
 
+        // 連携済コーチの Google 側 busy 区間を 1 日分先読みする(未連携 / 通信失敗は空 Collection)
+        $googleBusyByCoach = $coaches->mapWithKeys(
+            fn (User $coach) => [$coach->id => $this->googleCalendar->busyIntervals($coach, $dayStart, $dayEnd)],
+        );
+
         /** @var array<string, int> $slotCounts スロット開始時刻(H:i) → available coach 数 */
         $slotCounts = [];
 
@@ -66,11 +81,16 @@ final class MeetingAvailabilityService
             $end = Carbon::parse($date->format('Y-m-d').' '.$availability->end_time);
 
             while ($slot->copy()->addHour() <= $end) {
+                $slotEnd = $slot->copy()->addHour();
                 $slotKey = $slot->format('H:i');
                 $coachId = $availability->coach_id;
                 $booked = $bookedByCoach[$coachId] ?? [];
 
-                if (! in_array($slotKey, $booked, true)) {
+                $hasGoogleConflict = ($googleBusyByCoach[$coachId] ?? collect())->contains(
+                    fn (array $interval) => $slot->lt($interval['end']) && $interval['start']->lt($slotEnd),
+                );
+
+                if (! in_array($slotKey, $booked, true) && ! $hasGoogleConflict) {
                     $slotCounts[$slotKey] = ($slotCounts[$slotKey] ?? 0) + 1;
                 }
 
