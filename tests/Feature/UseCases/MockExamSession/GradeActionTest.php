@@ -99,6 +99,46 @@ class GradeActionTest extends TestCase
         $this->assertEquals(50.00, (float) $session->score_percentage);
     }
 
+    public function test_grades_session_with_all_correct_answers_as_pass(): void
+    {
+        $mockExam = MockExam::factory()->published()->passingScore(100)->create();
+        $questions = collect();
+        for ($i = 0; $i < 4; $i++) {
+            $questions->push(MockExamQuestion::factory()->forMockExam($mockExam)->withOptions(4, 0)->create(['order' => $i]));
+        }
+
+        $session = MockExamSession::factory()
+            ->forMockExam($mockExam)
+            ->inProgress()
+            ->create([
+                'generated_question_ids' => $questions->pluck('id')->all(),
+                'total_questions' => 4,
+                'passing_score_snapshot' => 100,
+            ]);
+
+        // 全問正解(100%) - 合格点 100% ちょうどでも合格になること
+        foreach ($questions as $question) {
+            $correctOption = $question->options->firstWhere('is_correct', true);
+
+            MockExamAnswer::factory()->create([
+                'mock_exam_session_id' => $session->id,
+                'mock_exam_question_id' => $question->id,
+                'selected_option_id' => $correctOption->id,
+                'selected_option_body' => $correctOption->body,
+                'is_correct' => false,
+                'answered_at' => now(),
+            ]);
+        }
+
+        (app(GradeAction::class))($session);
+
+        $session->refresh();
+        $this->assertSame(MockExamSessionStatus::Graded, $session->status);
+        $this->assertSame(4, $session->total_correct);
+        $this->assertEquals(100.00, (float) $session->score_percentage);
+        $this->assertTrue($session->pass);
+    }
+
     public function test_unanswered_questions_count_as_incorrect(): void
     {
         $mockExam = MockExam::factory()->published()->passingScore(50)->create();
