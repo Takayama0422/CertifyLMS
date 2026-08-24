@@ -23,6 +23,20 @@ use Illuminate\Support\Facades\DB;
 class EnrollmentStatsService
 {
     /**
+     * 管理者ダッシュボード集計キャッシュ(KPI / 資格別修了率)を無効化する。
+     *
+     * 呼出側(`EnrollmentStatusChangeService::recordStatusChange()` / Enrollment 受講解除 Action 等、
+     * 集計結果に影響する全ての Enrollment 状態変化経路)が `DB::afterCommit()` 内から呼ぶ前提。
+     * トランザクション確定前に呼ぶと、別リクエストがコミット前の旧値でキャッシュを再構築し、
+     * 以後 TTL 満了まで古い値が残ってしまう。
+     */
+    public function invalidateAdminDashboardCache(): void
+    {
+        Cache::forget(config('dashboard.admin_kpi_cache_key'));
+        Cache::forget(config('dashboard.admin_completion_rate_cache_key'));
+    }
+
+    /**
      * 全体 KPI(learning / passed / failed 件数 + 資格別内訳)を返す。
      *
      * @return array{learning_count: int, passed_count: int, failed_count: int, total: int, by_certification: array<int, array{certification_id: string, certification_name: string, learning: int, passed: int, failed: int, total: int}>}
