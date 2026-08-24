@@ -24,6 +24,26 @@ services:
         depends_on:
             - mysql
             - mailpit
+    queue:
+        # T-A-05: 通知・メール配信の非同期化(キュー)。laravel.test と同じイメージを再利用し、
+        # worker プロセスとして `queue:work` だけを起動する(Horizon 等の監視ダッシュボードは導入しない)。
+        build:
+            context: './vendor/laravel/sail/runtimes/8.5'
+            dockerfile: Dockerfile
+            args:
+                WWWGROUP: '${WWWGROUP}'
+        image: 'sail-8.5/app'
+        command: ['php', 'artisan', 'queue:work', '--tries=5', '--backoff=10,30,60,300,900']
+        environment:
+            WWWUSER: '${WWWUSER}'
+            LARAVEL_SAIL: 1
+        volumes:
+            - '.:/var/www/html'
+        networks:
+            - sail
+        depends_on:
+            - mysql
+            - mailpit
     mysql:
         image: 'mysql:8.4'
         ports:

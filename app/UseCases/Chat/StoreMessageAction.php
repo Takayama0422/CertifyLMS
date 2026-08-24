@@ -22,6 +22,8 @@ use Illuminate\Support\Facades\DB;
  * - 担当コーチ未割当の判定は Controller 側で実施済(`CertificationCoachNotAssignedForChatException` 振り分け)
  * - 送信者以外のルーム参加者(相手方)へ、配信対象の除外規則(`NotificationRecipientService`)を通した
  *   うえでアプリ内通知 + メール(`ChatMessageReceivedNotification`)を afterCommit で発火する
+ *   (T-A-05: `ChatMessageReceivedNotification` 自体が `ShouldQueueAfterCommit` のため、
+ *   実際の配信処理はバックグラウンドのキューへ渡るだけで即時に返る)
  */
 final class StoreMessageAction
 {

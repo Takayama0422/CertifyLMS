@@ -16,6 +16,8 @@ use Illuminate\Support\Facades\DB;
  *
  * スレッド投稿者(自分自身の質問への回答は除く)へ、配信対象の除外規則を通したうえで
  * アプリ内通知 + メール(`QaReplyReceivedNotification`)を afterCommit で発火する。
+ * (T-A-05: `QaReplyReceivedNotification` 自体が `ShouldQueueAfterCommit` のため、
+ * 実際の配信処理はバックグラウンドのキューへ渡るだけで即時に返る)
  *
  * @param array{body: string} $validated QaReply/StoreRequest::rules() で検証済
  */
