@@ -13,6 +13,9 @@ use Illuminate\Support\Facades\Schema;
  * - enrollment_id / section_id は「今いる文脈」の自動付与用(いずれも任意 = 全般相談も許容)。
  *   Section が削除されても会話自体は残す(nullOnDelete)ため、Enrollment / Section の削除で
  *   本テーブルの行が消えることはない。
+ * - (user_id, section_id) は一意制約。同じ受講生 × 同じ教材の会話を乱立させない要件を DB でも
+ *   担保する(section_id が NULL の一般相談同士は、NULL 同士を別物として扱う DB の一意制約の挙動
+ *   どおり何件でも作成できる)。
  * - title は AI 自動生成(初回応答後 1 回)または受講生の手動編集で更新される。
  *   title_manually_set = true になった会話は以降 AI による自動改題の対象から外す。
  * - last_message_at は一覧の並び順(今日 / 過去 7 日 / 過去 30 日のグルーピング)に使う非正規化カラム。
@@ -40,7 +43,7 @@ return new class extends Migration
             $table->timestamps();
 
             $table->index(['user_id', 'last_message_at']);
-            $table->index(['user_id', 'section_id']);
+            $table->unique(['user_id', 'section_id']);
         });
     }
 

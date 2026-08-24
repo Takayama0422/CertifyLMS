@@ -145,6 +145,71 @@ class StoreConversationTest extends TestCase
         $response->assertSessionHasErrors('message');
     }
 
+    public function test_section_not_enrolled_by_student_is_rejected(): void
+    {
+        // 受講していない資格の教材の ID を送っても会話を作れてはならない(レビュー指摘 2)。
+        $student = User::factory()->student()->inProgress()->create();
+        $certification = Certification::factory()->published()->create();
+        $part = Part::factory()->for($certification)->published()->create();
+        $chapter = Chapter::factory()->for($part)->published()->create();
+        $section = Section::factory()->for($chapter)->published()->create();
+        // Enrollment を作らない = 受講していない。
+
+        $response = $this->actingAs($student)
+            ->postJson(route('ai-chat.conversations.store'), ['source' => 'widget', 'section_id' => $section->id]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('section_id');
+        $this->assertDatabaseMissing('ai_chat_conversations', ['section_id' => $section->id]);
+    }
+
+    public function test_draft_section_is_rejected(): void
+    {
+        // 下書きの教材の ID を送っても会話を作れてはならない(レビュー指摘 2)。
+        $student = User::factory()->student()->inProgress()->create();
+        $certification = Certification::factory()->published()->create();
+        $part = Part::factory()->for($certification)->published()->create();
+        $chapter = Chapter::factory()->for($part)->published()->create();
+        $section = Section::factory()->for($chapter)->draft()->create();
+
+        Enrollment::factory()->for($student)->for($certification)->create();
+
+        $response = $this->actingAs($student)
+            ->postJson(route('ai-chat.conversations.store'), ['source' => 'widget', 'section_id' => $section->id]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('section_id');
+    }
+
+    public function test_section_under_draft_chapter_is_rejected(): void
+    {
+        // Section 自体は公開でも、親(Chapter / Part)が下書きなら非公開扱い(cascade)。
+        $student = User::factory()->student()->inProgress()->create();
+        $certification = Certification::factory()->published()->create();
+        $part = Part::factory()->for($certification)->published()->create();
+        $chapter = Chapter::factory()->for($part)->draft()->create();
+        $section = Section::factory()->for($chapter)->published()->create();
+
+        Enrollment::factory()->for($student)->for($certification)->create();
+
+        $response = $this->actingAs($student)
+            ->postJson(route('ai-chat.conversations.store'), ['source' => 'widget', 'section_id' => $section->id]);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('section_id');
+    }
+
+    public function test_nonexistent_section_is_rejected(): void
+    {
+        $student = User::factory()->student()->inProgress()->create();
+
+        $response = $this->actingAs($student)
+            ->postJson(route('ai-chat.conversations.store'), ['source' => 'widget', 'section_id' => 'nonexistent-id']);
+
+        $response->assertStatus(422);
+        $response->assertJsonValidationErrors('section_id');
+    }
+
     public function test_non_student_forbidden(): void
     {
         $coach = User::factory()->coach()->inProgress()->create();
@@ -166,9 +231,11 @@ class StoreConversationTest extends TestCase
 
     private function createSectionFor(User $student): Section
     {
+        // 「受講中の資格の、公開されている教材のみ受け付ける」検証(レビュー指摘 2)を満たすため、
+        // Part / Chapter / Section をすべて公開状態にし、受講中(learning)の Enrollment も用意する。
         $certification = Certification::factory()->published()->create();
-        $part = Part::factory()->for($certification)->create();
-        $chapter = Chapter::factory()->for($part)->create();
+        $part = Part::factory()->for($certification)->published()->create();
+        $chapter = Chapter::factory()->for($part)->published()->create();
         $section = Section::factory()->for($chapter)->published()->create();
 
         Enrollment::factory()->for($student)->for($certification)->create();

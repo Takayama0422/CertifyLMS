@@ -25,7 +25,11 @@ class AiChatMessageFactory extends Factory
     {
         return [
             'ai_chat_conversation_id' => AiChatConversation::factory(),
-            'user_id' => User::factory()->student()->inProgress(),
+            // 1 日あたりの送信上限は user_id + role=user だけで集計するため、既定値が会話の持ち主と
+            // 別ユーザーになっていると集計対象から外れたまま通るテストが書けてしまう。
+            // ai_chat_conversation_id より後で解決されるため、作成済みの会話の持ち主に揃える。
+            'user_id' => fn (array $attributes) => AiChatConversation::query()->find($attributes['ai_chat_conversation_id'])?->user_id
+                ?? User::factory()->student()->inProgress(),
             'role' => AiChatMessageRole::User->value,
             'status' => AiChatMessageStatus::Completed->value,
             'content' => fake()->realText(80),
@@ -58,20 +62,6 @@ class AiChatMessageFactory extends Factory
             'input_tokens' => fake()->numberBetween(50, 400),
             'output_tokens' => fake()->numberBetween(20, 300),
             'response_time_ms' => fake()->numberBetween(400, 3000),
-        ]);
-    }
-
-    public function assistantError(): static
-    {
-        return $this->state(fn () => [
-            'role' => AiChatMessageRole::Assistant->value,
-            'status' => AiChatMessageStatus::Error->value,
-            'content' => '',
-            'error_detail' => 'Gemini API error (HTTP 503): The model is overloaded.',
-            'model' => null,
-            'input_tokens' => null,
-            'output_tokens' => null,
-            'response_time_ms' => null,
         ]);
     }
 }

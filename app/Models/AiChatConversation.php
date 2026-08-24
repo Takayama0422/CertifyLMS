@@ -67,6 +67,9 @@ class AiChatConversation extends Model
      */
     public function messages(): HasMany
     {
-        return $this->hasMany(AiChatMessage::class)->orderBy('created_at');
+        // 1 リクエスト内で質問 → 回答を連続保存するため created_at が同一秒になるのが常態。
+        // id(ULID)はミリ秒精度の生成時刻 + 単調増加な乱数部を持つため、created_at が同値でも
+        // 生成順どおりに並ぶ安全なタイブレーカーとして使う。
+        return $this->hasMany(AiChatMessage::class)->orderBy('created_at')->orderBy('id');
     }
 }

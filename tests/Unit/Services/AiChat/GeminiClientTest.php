@@ -95,6 +95,22 @@ class GeminiClientTest extends TestCase
         Http::assertSentCount(3); // 初回 + retryTimes(2)
     }
 
+    public function test_generate_reply_stops_retrying_once_max_total_wait_seconds_is_exceeded(): void
+    {
+        // timeout × 試行回数の合計待ち時間に上限を設ける(レビュー指摘 15)。上限を 0 秒にすることで、
+        // retryTimes に余地があっても初回の 1 回で打ち切られることを確認する。
+        Http::fake([
+            '*' => Http::response(['error' => ['message' => 'still overloaded']], 503),
+        ]);
+
+        $client = new GeminiClient(apiKey: 'test-key', retryTimes: 5, retryDelayMs: 0, maxTotalWaitSeconds: 0);
+
+        $result = $client->generateReply('system', [], 'hello');
+
+        $this->assertFalse($result->successful);
+        Http::assertSentCount(1);
+    }
+
     public function test_generate_reply_does_not_retry_on_400(): void
     {
         Http::fake([

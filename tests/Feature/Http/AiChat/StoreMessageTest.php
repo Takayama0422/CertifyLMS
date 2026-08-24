@@ -6,6 +6,7 @@ namespace Tests\Feature\Http\AiChat;
 
 use App\Enums\AiChatMessageRole;
 use App\Enums\AiChatMessageStatus;
+use App\Enums\UserStatus;
 use App\Models\AiChatConversation;
 use App\Models\AiChatMessage;
 use App\Models\User;
@@ -163,6 +164,11 @@ class StoreMessageTest extends TestCase
 
     public function test_retries_transient_error_then_succeeds(): void
     {
+        // 自動改題(初回応答成功直後に追加で 1 回 Gemini を叩く)は本テストの検証対象(再試行)とは
+        // 無関係なため無効化する。有効のままだと Http::sequence() の残数が足りず、握り潰される例外
+        // (呼び出し回数の想定とズレたまま緑になる)が発生していたため分離した。
+        config(['ai-chat.auto_title.enabled' => false]);
+
         Http::fake([
             '*generativelanguage.googleapis.com*' => Http::sequence()
                 ->push(['error' => ['message' => 'overloaded']], 503)
@@ -184,6 +190,10 @@ class StoreMessageTest extends TestCase
 
     public function test_can_resend_same_content_after_failure(): void
     {
+        // 自動改題は本テスト(送り直し)の検証対象外のため無効化する。理由は
+        // test_retries_transient_error_then_succeeds のコメントと同じ。
+        config(['ai-chat.auto_title.enabled' => false]);
+
         Http::fake([
             '*generativelanguage.googleapis.com*' => Http::sequence()
                 ->push(['error' => ['message' => 'boom']], 500)
@@ -337,6 +347,41 @@ class StoreMessageTest extends TestCase
             route('ai-chat.conversations.messages.store', $conversation),
             ['content' => '不正アクセス'],
         )->assertForbidden();
+    }
+
+    public function test_graduated_owner_forbidden(): void
+    {
+        // 受講中に作った会話でも、修了(卒業)後は直リンクのメッセージ送信が通ってはならない
+        // (外部 API の枠を消費させないため)。
+        $owner = User::factory()->student()->inProgress()->create();
+        $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id]);
+        $owner->update(['status' => UserStatus::Graduated->value]);
+
+        $this->actingAs($owner->fresh())->postJson(
+            route('ai-chat.conversations.messages.store', $conversation),
+            ['content' => '修了後の送信'],
+        )->assertForbidden();
+
+        $this->assertDatabaseMissing('ai_chat_messages', ['content' => '修了後の送信']);
+    }
+
+    public function test_daily_limit_exceeded_via_html_form_redirects_back_with_flash_error(): void
+    {
+        // JS 無効等で素の HTML フォーム POST が届いた場合、429 は Handler::REDIRECT_BACK_STATUSES
+        // へ一元化された「直前ページへ戻し + Flash error」に変換される(例外クラス自身の render() では
+        // なく、他のドメイン例外 8 件と同じ Handler 集中管理の流儀に揃えた)。
+        config(['ai-chat.daily_message_limit' => 0]);
+
+        $student = User::factory()->student()->inProgress()->create();
+        $conversation = AiChatConversation::factory()->create(['user_id' => $student->id]);
+
+        $response = $this->actingAs($student)->post(
+            route('ai-chat.conversations.messages.store', $conversation),
+            ['content' => '上限超過です'],
+        );
+
+        $response->assertSessionHas('error');
+        $this->assertDatabaseMissing('ai_chat_messages', ['content' => '上限超過です']);
     }
 
     public function test_disabled_feature_returns_404(): void

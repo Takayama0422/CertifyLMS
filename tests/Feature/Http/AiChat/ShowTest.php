@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Http\AiChat;
 
+use App\Enums\UserStatus;
 use App\Models\AiChatConversation;
 use App\Models\AiChatMessage;
 use App\Models\User;
@@ -46,6 +47,18 @@ class ShowTest extends TestCase
         $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id]);
 
         $this->actingAs($stranger)
+            ->get(route('ai-chat.conversations.show', $conversation))
+            ->assertForbidden();
+    }
+
+    public function test_graduated_owner_forbidden(): void
+    {
+        // 受講中に作った会話でも、修了(卒業)後は直リンクの詳細閲覧が通ってはならない。
+        $owner = User::factory()->student()->inProgress()->create();
+        $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id]);
+        $owner->update(['status' => UserStatus::Graduated->value]);
+
+        $this->actingAs($owner->fresh())
             ->get(route('ai-chat.conversations.show', $conversation))
             ->assertForbidden();
     }

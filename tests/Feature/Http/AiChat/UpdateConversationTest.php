@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Http\AiChat;
 
+use App\Enums\UserStatus;
 use App\Models\AiChatConversation;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -51,6 +52,20 @@ class UpdateConversationTest extends TestCase
         $this->actingAs($stranger)
             ->patch(route('ai-chat.conversations.update', $conversation), ['title' => '乗っ取り'])
             ->assertForbidden();
+    }
+
+    public function test_graduated_owner_forbidden(): void
+    {
+        // 受講中に作った会話でも、修了(卒業)後は直リンクの見出し編集が通ってはならない。
+        $owner = User::factory()->student()->inProgress()->create();
+        $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id, 'title' => '元のタイトル']);
+        $owner->update(['status' => UserStatus::Graduated->value]);
+
+        $this->actingAs($owner->fresh())
+            ->patch(route('ai-chat.conversations.update', $conversation), ['title' => '修了後の編集'])
+            ->assertForbidden();
+
+        $this->assertSame('元のタイトル', $conversation->fresh()->title);
     }
 
     public function test_title_required(): void

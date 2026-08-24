@@ -150,9 +150,16 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
     利用できなくなります（既定 `true`）。
   - `GEMINI_MODEL` / `GEMINI_BASE_URL` / `GEMINI_TIMEOUT` / `GEMINI_RETRY_TIMES` / `GEMINI_RETRY_DELAY_MS` —
     Gemini API との通信設定です。通常は既定値のままで問題ありません。
+  - `GEMINI_MAX_TOTAL_WAIT_SECONDS` — 通信が全滅した場合でも合計でここまでしか待たない上限です
+    （既定 45 秒）。`GEMINI_TIMEOUT` × 試行回数の合計がこれを超えたら以後の再試行を打ち切り、
+    受講生のリクエストが長時間ブロックされ続けないようにします。
   - `AI_CHAT_DAILY_MESSAGE_LIMIT` — 受講生 1 人・1 日あたりのメッセージ送信上限です（既定 30）。
   - `AI_CHAT_HISTORY_LIMIT` — AI への入力に引き継ぐ直近メッセージ件数です（既定 20）。
   - `AI_CHAT_AUTO_TITLE_ENABLED` — 初回 AI 応答後に会話タイトルを AI が自動生成する機能の ON/OFF です
     （既定 `true`）。受講生が手動で編集した会話タイトルは上書きしません。
+  - `AI_CHAT_SYSTEM_PROMPT_BASE` / `AI_CHAT_SYSTEM_PROMPT_SECTION_CONTEXT` /
+    `AI_CHAT_SYSTEM_PROMPT_CERTIFICATION_CONTEXT` — Gemini へ渡すシステムプロンプト(AI への指示文)です。
+    管理画面 / DB での管理は仕様のスコープ外のため、環境変数のみで完結します。
+    `:title`(教材名)/ `:name`(資格名)はそれぞれ動的に置換されるプレースホルダです。
 
 新しい環境変数やセットアップ手順を追加した場合は、`.env.example` と本 README に追記し、チームの誰でも環境を再現できる状態を保ってください。

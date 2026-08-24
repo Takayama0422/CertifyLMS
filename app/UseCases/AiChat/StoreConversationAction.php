@@ -9,6 +9,7 @@ use App\Models\AiChatConversation;
 use App\Models\Enrollment;
 use App\Models\Section;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
@@ -20,6 +21,8 @@ use Illuminate\Support\Str;
  *   Enrollment、section が無ければ受講生の既定資格(あれば)を採用する。
  * - `initialMessage` が渡された場合、会話作成後に `StoreMessageAction` で同期送信する
  *   (フル画面「新しい会話」モーダルの挙動)。ウィジェット経由は初回メッセージなしで会話だけ作る。
+ *   会話作成とこの初回メッセージ送信は 1 トランザクションにまとめる。日次上限超過等で
+ *   `StoreMessageAction` が例外を投げた場合、作成直後の空の会話を残さずロールバックするため。
  */
 final class StoreConversationAction
 {
@@ -45,19 +48,27 @@ final class StoreConversationAction
         }
 
         $enrollment = $this->resolveEnrollment($user, $section);
-
-        $conversation = AiChatConversation::create([
-            'user_id' => $user->id,
-            'section_id' => $section?->id,
-            'enrollment_id' => $enrollment?->id,
-            'title' => $this->buildInitialTitle($initialMessage, $section),
-            'title_manually_set' => false,
-        ]);
-
         $trimmedMessage = $initialMessage !== null ? trim($initialMessage) : '';
-        if ($trimmedMessage !== '') {
-            ($this->storeMessage)($user, $conversation, $trimmedMessage);
-        }
+
+        $conversation = DB::transaction(function () use ($user, $section, $enrollment, $initialMessage, $trimmedMessage) {
+            $conversation = AiChatConversation::create([
+                'user_id' => $user->id,
+                'section_id' => $section?->id,
+                'enrollment_id' => $enrollment?->id,
+                'title' => $this->buildInitialTitle($initialMessage, $section),
+                'title_manually_set' => false,
+                // 一覧は last_message_at でグルーピング / 並び替えする。ウィジェットは初回メッセージ無しで
+                // 会話だけ作る作りのため、ここで入れておかないと「今日」グループに入らず最下部へ落ちる。
+                // メッセージが後続する場合は StoreMessageAction が送信時刻へ更新する。
+                'last_message_at' => now(),
+            ]);
+
+            if ($trimmedMessage !== '') {
+                ($this->storeMessage)($user, $conversation, $trimmedMessage);
+            }
+
+            return $conversation;
+        });
 
         return new AiChatConversationResult($conversation->fresh(), created: true);
     }
@@ -112,7 +123,9 @@ final class StoreConversationAction
         }
 
         if ($section !== null) {
-            return Str::limit("{$section->title} についての相談", 100);
+            // 末尾に "..." を足す既定の Str::limit だと 100 文字の制限を超えて保存に失敗する
+            // (DB カラムは string(100), 厳格モード)ため、記号を足さない形で 100 文字以内に収める。
+            return Str::limit("{$section->title} についての相談", 100, '');
         }
 
         return '新しい相談';

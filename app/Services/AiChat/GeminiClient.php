@@ -18,7 +18,10 @@ use Throwable;
  * - API キー未設定 / 通信失敗 / 空応答は例外を投げず `GeminiReplyResult::failure()` を返す。
  *   呼び出し側(`StoreMessageAction`)は「AI 応答に失敗しても受講生の質問は残す」フローを
  *   分岐なしで書けるようにするため。
- * - 一時的なエラー(429 / 5xx / 接続例外)は `retry_times` 回まで自動再試行する。
+ * - 一時的なエラー(429 / 5xx / 接続例外)は `retry_times` 回まで自動再試行する。ただし
+ *   `timeout`(1 回あたり最大待ち時間)× 試行回数がそのまま合計待ち時間になり得るため、
+ *   `max_total_wait_seconds` で合計待ち時間の上限を別途設ける(超えたら以後は再試行しない)。
+ *   受講生のリクエストがこの時間より長くブロックされ続けることはない。
  */
 class GeminiClient
 {
@@ -29,6 +32,7 @@ class GeminiClient
         private readonly int $timeoutSeconds = 30,
         private readonly int $retryTimes = 2,
         private readonly int $retryDelayMs = 200,
+        private readonly int $maxTotalWaitSeconds = 45,
     ) {}
 
     public static function fromConfig(): self
@@ -40,6 +44,7 @@ class GeminiClient
             timeoutSeconds: (int) config('ai-chat.gemini.timeout', 30),
             retryTimes: (int) config('ai-chat.gemini.retry_times', 2),
             retryDelayMs: (int) config('ai-chat.gemini.retry_delay_ms', 200),
+            maxTotalWaitSeconds: (int) config('ai-chat.gemini.max_total_wait_seconds', 45),
         );
     }
 
@@ -115,7 +120,7 @@ class GeminiClient
         $started = microtime(true);
 
         try {
-            $response = $this->pendingRequest()->post(
+            $response = $this->pendingRequest($started)->post(
                 "/v1beta/models/{$this->model}:generateContent",
                 $payload
             );
@@ -159,8 +164,10 @@ class GeminiClient
         );
     }
 
-    private function pendingRequest(): PendingRequest
+    private function pendingRequest(float $startedAt): PendingRequest
     {
+        $maxTotalWaitMs = max(0, $this->maxTotalWaitSeconds) * 1000;
+
         return Http::baseUrl($this->baseUrl)
             ->withHeaders(['x-goog-api-key' => $this->apiKey])
             ->timeout($this->timeoutSeconds)
@@ -168,7 +175,12 @@ class GeminiClient
             ->retry(
                 times: max(1, $this->retryTimes + 1),
                 sleepMilliseconds: $this->retryDelayMs,
-                when: function (Throwable $exception): bool {
+                when: function (Throwable $exception) use ($startedAt, $maxTotalWaitMs): bool {
+                    // 合計待ち時間が上限を超えていれば、まだ再試行の余地(times)が残っていても打ち切る。
+                    if ($this->elapsedMs($startedAt) >= $maxTotalWaitMs) {
+                        return false;
+                    }
+
                     if ($exception instanceof ConnectionException) {
                         return true;
                     }

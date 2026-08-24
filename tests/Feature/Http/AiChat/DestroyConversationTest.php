@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Http\AiChat;
 
+use App\Enums\UserStatus;
 use App\Models\AiChatConversation;
 use App\Models\AiChatMessage;
 use App\Models\User;
@@ -51,6 +52,20 @@ class DestroyConversationTest extends TestCase
         $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id]);
 
         $this->actingAs($stranger)
+            ->delete(route('ai-chat.conversations.destroy', $conversation))
+            ->assertForbidden();
+
+        $this->assertDatabaseHas('ai_chat_conversations', ['id' => $conversation->id]);
+    }
+
+    public function test_graduated_owner_forbidden(): void
+    {
+        // 受講中に作った会話でも、修了(卒業)後は直リンクの削除が通ってはならない。
+        $owner = User::factory()->student()->inProgress()->create();
+        $conversation = AiChatConversation::factory()->create(['user_id' => $owner->id]);
+        $owner->update(['status' => UserStatus::Graduated->value]);
+
+        $this->actingAs($owner->fresh())
             ->delete(route('ai-chat.conversations.destroy', $conversation))
             ->assertForbidden();
 

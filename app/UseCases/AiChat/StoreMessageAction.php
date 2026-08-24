@@ -120,7 +120,10 @@ final class StoreMessageAction
             ->where('ai_chat_conversation_id', $conversation->id)
             ->where('id', '!=', $excludeMessage->id)
             ->where('status', AiChatMessageStatus::Completed->value)
+            // created_at は 1 リクエスト内の連続保存で同一秒になるのが常態のため、
+            // id(ULID, ミリ秒精度 + 単調増加)を secondary sort として発言順を確定させる。
             ->orderByDesc('created_at')
+            ->orderByDesc('id')
             ->limit($limit)
             ->get()
             ->reverse()
@@ -132,24 +135,34 @@ final class StoreMessageAction
             ->all();
     }
 
+    /**
+     * システムプロンプトは `config('ai-chat.system_prompt.*')`(実体は環境変数)から読む。
+     * 管理画面 / DB 管理は仕様のスコープ外(「環境設定で完結」)のため、固定文字列をコードに
+     * 直書きせず設定値化している。`:title` / `:name` はここで動的な値へ置換するプレースホルダ。
+     */
     private function buildSystemInstruction(AiChatConversation $conversation): string
     {
         $conversation->loadMissing(['section.chapter.part.certification', 'enrollment.certification']);
 
-        $lines = [
-            'あなたは資格学習支援 LMS 「Certify LMS」の AI 学習アシスタントです。'
-            .'受講生の学習相談に日本語で簡潔かつ丁寧に答えてください。断定できない専門的な内容は「参考情報」である旨を添えてください。',
-        ];
+        $lines = [(string) config('ai-chat.system_prompt.base')];
 
         if ($conversation->section !== null) {
-            $lines[] = "受講生は現在教材「{$conversation->section->title}」を閲覧しながら質問しています。可能であればこの教材の文脈を踏まえて回答してください。";
+            $lines[] = str_replace(
+                ':title',
+                $conversation->section->title,
+                (string) config('ai-chat.system_prompt.section_context'),
+            );
         }
 
         $certificationName = $conversation->enrollment?->certification?->name
             ?? $conversation->section?->chapter?->part?->certification?->name;
 
         if ($certificationName !== null) {
-            $lines[] = "受講生は資格「{$certificationName}」の取得を目指して学習中です。";
+            $lines[] = str_replace(
+                ':name',
+                $certificationName,
+                (string) config('ai-chat.system_prompt.certification_context'),
+            );
         }
 
         return implode("\n", $lines);
