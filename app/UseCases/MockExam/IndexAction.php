@@ -26,7 +26,8 @@ final class IndexAction
         int $perPage = 20,
     ): LengthAwarePaginator {
         $query = MockExam::query()
-            ->with(['certification', 'createdBy', 'updatedBy']);
+            ->with(['certification', 'createdBy', 'updatedBy'])
+            ->withCount('mockExamQuestions');
 
         if ($auth->role === UserRole::Coach) {
             $query->whereHas(
