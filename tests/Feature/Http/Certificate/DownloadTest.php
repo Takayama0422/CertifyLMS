@@ -98,10 +98,39 @@ class DownloadTest extends TestCase
 
     public function test_unassigned_coach_cannot_download_certificate(): void
     {
+        // 「担当を1件も持っていないコーチ」だけでなく、「別の資格を担当しているコーチ」でも弾かれることを検証する。
+        // 前者だけだと、認可判定から資格の絞り込みが抜けて「何かしら担当を持つコーチなら誰でも可」になっても
+        // テストが通ってしまう(資格による絞り込みそのものは検証できていない)。
         Storage::fake('private');
+        $admin = User::factory()->admin()->create();
         $coach = User::factory()->coach()->create();
+        $assignedCertification = Certification::factory()->published()->create();
+        $this->attachCoach($assignedCertification, $coach, $admin);
+
         $student = User::factory()->student()->inProgress()->create();
-        $certificate = $this->certificateWithFile($student);
+        $otherCertification = Certification::factory()->published()->create();
+        $certificate = $this->certificateWithFile($student, $otherCertification);
+
+        $response = $this->actingAs($coach)->get(route('certificates.download', $certificate));
+
+        $response->assertForbidden();
+    }
+
+    public function test_coach_with_revoked_assignment_cannot_download_certificate(): void
+    {
+        // 担当解除済み(unassigned_at 有り)のコーチは、同一資格であっても弾かれることを検証する。
+        Storage::fake('private');
+        $admin = User::factory()->admin()->create();
+        $coach = User::factory()->coach()->create();
+        $certification = Certification::factory()->published()->create();
+        $certification->coaches()->attach($coach->id, [
+            'id' => (string) Str::ulid(),
+            'assigned_by_user_id' => $admin->id,
+            'assigned_at' => now()->subDays(10),
+            'unassigned_at' => now()->subDay(),
+        ]);
+        $student = User::factory()->student()->inProgress()->create();
+        $certificate = $this->certificateWithFile($student, $certification);
 
         $response = $this->actingAs($coach)->get(route('certificates.download', $certificate));
 

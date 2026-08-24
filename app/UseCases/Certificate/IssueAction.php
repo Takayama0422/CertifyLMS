@@ -12,7 +12,9 @@ use App\Models\Certificate;
 use App\Models\Enrollment;
 use App\Services\CertificatePdfGenerator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Throwable;
 
 /**
  * 修了証を発行するユースケース。受講生自己発火型の修了処理 `\App\UseCases\Enrollment\ReceiveCertificateAction` から呼び出される。
@@ -24,6 +26,12 @@ use Illuminate\Support\Str;
  * 修了証レコードの INSERT + PDF 実体生成(`CertificatePdfGenerator`)は同一 `DB::transaction()` 内で実行する。
  * PDF 生成が失敗した場合は例外が transaction を ROLLBACK させるため、Certificate レコードは残らない
  * (修了証は未発行のまま保たれる)。
+ *
+ * `pdf_path` は Storage 保存(PDF 実体の書き込み)より前、DB トランザクションの外側で確定させる。
+ * `SectionImage\StoreAction` と同じ作法で DB::transaction 全体を try/catch し、
+ * PDF 保存後に何らかの理由で transaction が失敗(commit 失敗含む)した場合は catch 節で
+ * 保存済み PDF を削除し、どのレコードからも参照されない orphan ファイルを残さない
+ * (`generate()` 自体が失敗した場合、ファイルは書き込まれていないため delete は no-op)。
  */
 final class IssueAction
 {
@@ -42,28 +50,35 @@ final class IssueAction
             throw new EnrollmentNotPassedException;
         }
 
-        return DB::transaction(function () use ($enrollment) {
-            // 二重発行ガード: lockForUpdate で同時呼出を直列化し、enrollment_id UNIQUE 違反を例外メッセージ判別ではなく事前 SELECT で確定検出する
-            $existing = Certificate::query()
-                ->where('enrollment_id', $enrollment->id)
-                ->lockForUpdate()
-                ->first();
+        $pdfPath = 'certificates/'.Str::ulid().'.pdf';
 
-            if ($existing !== null) {
-                throw new CertificateAlreadyIssuedException;
-            }
+        try {
+            return DB::transaction(function () use ($enrollment, $pdfPath) {
+                // 二重発行ガード: lockForUpdate で同時呼出を直列化し、enrollment_id UNIQUE 違反を例外メッセージ判別ではなく事前 SELECT で確定検出する
+                $existing = Certificate::query()
+                    ->where('enrollment_id', $enrollment->id)
+                    ->lockForUpdate()
+                    ->first();
 
-            $certificate = Certificate::create([
-                'user_id' => $enrollment->user_id,
-                'enrollment_id' => $enrollment->id,
-                'certification_id' => $enrollment->certification_id,
-                'pdf_path' => 'certificates/'.Str::ulid().'.pdf',
-                'issued_at' => now(),
-            ]);
+                if ($existing !== null) {
+                    throw new CertificateAlreadyIssuedException;
+                }
 
-            $this->pdfGenerator->generate($certificate);
+                $certificate = Certificate::create([
+                    'user_id' => $enrollment->user_id,
+                    'enrollment_id' => $enrollment->id,
+                    'certification_id' => $enrollment->certification_id,
+                    'pdf_path' => $pdfPath,
+                    'issued_at' => now(),
+                ]);
 
-            return $certificate;
-        });
+                $this->pdfGenerator->generate($certificate);
+
+                return $certificate;
+            });
+        } catch (Throwable $e) {
+            Storage::disk('private')->delete($pdfPath);
+            throw $e;
+        }
     }
 }

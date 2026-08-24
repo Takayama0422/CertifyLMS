@@ -17,6 +17,8 @@ use Throwable;
  *
  * `Certificate\IssueAction` から DB::transaction 内で呼び出される想定。本サービス自体はロールバックを
  * 行わないため、失敗時に Certificate レコードを残さないことは呼び出し元のトランザクションが担保する。
+ * 同様に、PDF 保存後に呼び出し元の transaction 自体が失敗した場合の orphan ファイル削除も
+ * 呼び出し元(`IssueAction`)の責務であり、本サービスは行わない。
  *
  * PDF に載せるのは資格名 / 氏名 / 発行日の 3 点のみ(テンプレート側の責務、本サービスは関知しない)。
  */
