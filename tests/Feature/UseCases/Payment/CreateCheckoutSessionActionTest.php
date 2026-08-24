@@ -12,6 +12,7 @@ use App\Models\User;
 use App\Services\Contracts\PaymentGatewayContract;
 use App\UseCases\Payment\CreateCheckoutSessionAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\Support\FakePaymentGateway;
 use Tests\TestCase;
 
@@ -70,6 +71,40 @@ class CreateCheckoutSessionActionTest extends TestCase
         $payment = Payment::sole();
         $this->assertSame(3000, $payment->amount);
         $this->assertSame(1, $payment->quantity);
+    }
+
+    public function test_gateway_is_called_outside_of_a_database_transaction(): void
+    {
+        // 決済サービスへの通信をトランザクション内で行うと、Session 作成成功直後のコミット失敗で
+        // 「Stripe 側の Session だけが生き残り Payment 行が消える」= 課金されたのに残数が増えない状態になる。
+        $fake = new FakePaymentGateway;
+        $levelDuringCall = null;
+        $paymentExistsDuringCall = null;
+        $fake->onCall(function (Payment $payment) use (&$levelDuringCall, &$paymentExistsDuringCall): void {
+            $levelDuringCall = DB::transactionLevel();
+            $paymentExistsDuringCall = Payment::query()->whereKey($payment->id)->exists();
+        });
+        $this->app->instance(PaymentGatewayContract::class, $fake);
+
+        $user = User::factory()->student()->inProgress()->create();
+        $plan = MeetingPack::factory()->published()->create();
+
+        // RefreshDatabase 自体がテスト全体を 1 つのトランザクションで包むため、呼び出し前の深さを基準にする。
+        $baselineLevel = DB::transactionLevel();
+
+        app(CreateCheckoutSessionAction::class)(
+            $user,
+            $plan,
+            'https://app.test/meeting-quota/success',
+            'https://app.test/meeting-quota/checkout',
+        );
+
+        $this->assertSame(
+            $baselineLevel,
+            $levelDuringCall,
+            '決済サービスの呼び出しは DB トランザクションの外で行われなければならない。',
+        );
+        $this->assertTrue($paymentExistsDuringCall, 'Session 作成時点で Payment 行が確定していること。');
     }
 
     public function test_rolls_back_payment_row_when_gateway_fails(): void

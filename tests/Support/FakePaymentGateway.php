@@ -9,6 +9,7 @@ use App\Models\MeetingPack;
 use App\Models\Payment;
 use App\Services\Contracts\PaymentGatewayContract;
 use App\Services\Payment\CheckoutSession;
+use Closure;
 
 /**
  * PaymentGatewayContract のテスト用フェイク実装。実通信を一切発生させない(T-A-04)。
@@ -23,9 +24,23 @@ final class FakePaymentGateway implements PaymentGatewayContract
 
     private bool $shouldFail = false;
 
+    /** @var Closure(Payment): void|null */
+    private ?Closure $onCall = null;
+
     public function failNext(): void
     {
         $this->shouldFail = true;
+    }
+
+    /**
+     * 決済サービス呼び出しの「最中」に走らせる観測用フック。
+     * 呼び出し時点の DB トランザクション状態などを記録するために使う。
+     *
+     * @param Closure(Payment): void $callback
+     */
+    public function onCall(Closure $callback): void
+    {
+        $this->onCall = $callback;
     }
 
     public function createCheckoutSession(
@@ -35,6 +50,10 @@ final class FakePaymentGateway implements PaymentGatewayContract
         string $cancelUrl,
     ): CheckoutSession {
         $this->calls[] = compact('plan', 'payment', 'successUrl', 'cancelUrl');
+
+        if ($this->onCall !== null) {
+            ($this->onCall)($payment);
+        }
 
         if ($this->shouldFail) {
             throw new PaymentGatewayUnavailableException;

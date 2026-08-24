@@ -40,6 +40,24 @@ class IndexTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_withdrawn_student_cannot_access(): void
+    {
+        $student = User::factory()->student()->withdrawn()->create();
+
+        $this->actingAs($student)
+            ->get(route('meeting-quota.checkout.select'))
+            ->assertForbidden();
+    }
+
+    public function test_invited_student_cannot_access(): void
+    {
+        $student = User::factory()->student()->invited()->create();
+
+        $this->actingAs($student)
+            ->get(route('meeting-quota.checkout.select'))
+            ->assertForbidden();
+    }
+
     public function test_coach_cannot_access(): void
     {
         $coach = User::factory()->coach()->inProgress()->create();

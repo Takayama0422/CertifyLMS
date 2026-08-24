@@ -87,6 +87,36 @@ class StoreTest extends TestCase
         $this->assertSame(0, Payment::query()->count());
     }
 
+    public function test_withdrawn_student_cannot_purchase(): void
+    {
+        $this->app->instance(PaymentGatewayContract::class, new FakePaymentGateway);
+
+        $student = User::factory()->student()->withdrawn()->create();
+        $plan = MeetingPack::factory()->published()->create();
+
+        $response = $this->actingAs($student)->post(route('meeting-quota.checkout.create'), [
+            'meeting_pack_id' => $plan->id,
+        ]);
+
+        $response->assertForbidden();
+        $this->assertSame(0, Payment::query()->count());
+    }
+
+    public function test_invited_student_cannot_purchase(): void
+    {
+        $this->app->instance(PaymentGatewayContract::class, new FakePaymentGateway);
+
+        $student = User::factory()->student()->invited()->create();
+        $plan = MeetingPack::factory()->published()->create();
+
+        $response = $this->actingAs($student)->post(route('meeting-quota.checkout.create'), [
+            'meeting_pack_id' => $plan->id,
+        ]);
+
+        $response->assertForbidden();
+        $this->assertSame(0, Payment::query()->count());
+    }
+
     public function test_coach_cannot_purchase(): void
     {
         $this->app->instance(PaymentGatewayContract::class, new FakePaymentGateway);
