@@ -7,6 +7,10 @@ use App\Http\Kernel;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Foundation\Application;
 
+// worktree ローカル PSR-4 オーバーライド(詳細は bootstrap/worktree-autoload.php を参照)。
+// `tests/bootstrap.php` も同じファイルを require するため、二重登録はガード済み。
+require_once __DIR__.'/worktree-autoload.php';
+
 /*
 |--------------------------------------------------------------------------
 | Create The Application
