@@ -90,6 +90,46 @@ class NotificationPopoverAssetWiringTest extends TestCase
         }
     }
 
+    public function test_panel_is_opened_only_through_the_loading_and_fetch_path(): void
+    {
+        $script = $this->read(self::POPOVER_SCRIPT);
+
+        // パネルを開く呼び出しは 1 箇所だけに保つ(宣言 `function openPanel()` は末尾に `;` が無いため数に入らない)。
+        // 「初回クリックだけ取得を待ってから開く」実装に戻ると呼び出しが 2 箇所になり、
+        // 支給の data-notification-popover-loading を一度も通らない経路が復活する。
+        $this->assertSame(
+            1,
+            preg_match_all('/openPanel\(\);/', $script),
+            'パネルを開く経路が 1 箇所ではありません(読み込み中表示を通らない経路が残っています)。',
+        );
+
+        // 開いた直後に必ず再取得(= 読み込み中表示 → 反映)へ進むこと。
+        $this->assertMatchesRegularExpression(
+            '/openPanel\(\);\s*await reload\(\);/',
+            $script,
+            'パネルを開いた直後に一覧の再取得が走っていません。',
+        );
+    }
+
+    public function test_failed_fetch_is_expressed_with_the_supplied_empty_element(): void
+    {
+        $script = $this->read(self::POPOVER_SCRIPT);
+
+        // 支給 Blade には取得失敗専用の要素が無く、要素を足すことは支給画面の変更にあたるため不可。
+        // 失敗時は空状態の要素(data-notification-popover-empty)の文言を差し替えて伝える。
+        // これが無いと、通信に失敗したパネルが本文も空状態も出ないまま開く。
+        $this->assertMatchesRegularExpression(
+            '/const LOAD_ERROR_MESSAGE\s*=/',
+            $script,
+            '取得に失敗したときの表示文言が定義されていません。',
+        );
+        $this->assertMatchesRegularExpression(
+            '/loadFailed\s*\?\s*LOAD_ERROR_MESSAGE/',
+            $script,
+            '取得に失敗したときに空状態の要素へ失敗の文言を出す分岐がありません。',
+        );
+    }
+
     public function test_popover_script_calls_the_notification_json_api_endpoints(): void
     {
         $script = $this->read(self::POPOVER_SCRIPT);

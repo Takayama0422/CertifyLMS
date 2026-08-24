@@ -14,7 +14,7 @@
  *   data-notification-popover-mark-all        全件既読ボタン
  *   data-notification-popover-list            本文のスクロール領域(再取得・タブ切替で先頭へ戻す)
  *   data-notification-popover-loading         読み込み中スピナー
- *   data-notification-popover-empty           空状態メッセージ
+ *   data-notification-popover-empty           空状態メッセージ(取得失敗時のメッセージ差し替えにも使う)
  *   data-notification-popover-items           行 <ul>(JS が行を append する)
  *   data-notification-popover-row-template    行 <template>(1 件ごとに clone する)
  *   data-notification-popover-row             行の <a>(クリックで既読化 + 遷移)
@@ -34,13 +34,35 @@
  * (App\Http\Controllers\Api\NotificationController::index)、JS はそれが false のときポップオーバーを
  * 開かない。ベル自体は支給画面のまま残す(サーバ側で算出した未読バッジの初期値はそのまま表示される)。
  *
- * 初回フェッチはページ表示時ではなくベルの初回クリック時に行う(全ロールの全ページ表示で API を
- * 叩かないため)。したがって判定が確定するまでパネルは開かず、確定後に初めて開く。
+ * ★表示可否の判定タイミング(「開いてから読み込む」と「管理者に一瞬も見せない」の両立):
+ * パネルを開く経路は openPanel() の 1 箇所だけにし、必ず「開く → 読み込み中を出す → 取得」の順に走らせる。
+ * これが成立するのは、ベルを押した時点で表示可否が確定しているときに限られる。そこで判定だけを
+ * クリックより前へ追い出す:
+ *   1. 表示可否はページ表示時に 1 度だけ問い合わせ、sessionStorage に覚える(ログインユーザー ID 別)。
+ *   2. 2 ページ目以降は記憶から即座に確定するため、追加の問い合わせは発生しない
+ *      (「全ロールの全ページ表示で API を叩く」ことにはならない。セッション内で 1 回だけ)。
+ *   3. 記憶が無く判定も未完了のうちにベルが押された場合(セッション最初の数百 ms)に限り、
+ *      判定の応答を待ってから開く。管理者にパネルを見せないための最小限の例外。
+ *
+ * ★取得に失敗したときの見え方:
+ * 支給 Blade にエラー表示専用の要素は無い(要素の追加は支給画面の変更にあたるため不可)。
+ * そのため空状態の要素 data-notification-popover-empty を流用し、文言だけを差し替えて
+ * 「読み込めなかったこと」と「再取得の方法」を伝える。成功したら元の文言へ戻す。
+ * 再取得のきっかけは「次にベルを押して開き直したとき」で、開く経路が必ず取得を伴うため自動的に成立する。
  */
 
 import { getJson, postJson } from '../utils/fetch-json';
 
 const BADGE_OVERFLOW_THRESHOLD = 99;
+
+/** 表示可否の記憶キー(ログインユーザーが変わったら別キーになるよう ID を混ぜる)。 */
+const VISIBILITY_STORAGE_PREFIX = 'certify-lms:notification-popover-visible';
+
+/** 支給 Blade の空状態文言を読めなかったときの保険。 */
+const FALLBACK_EMPTY_MESSAGE = '通知はありません。';
+
+/** 取得に失敗したときに空状態の要素へ差し替える文言。 */
+const LOAD_ERROR_MESSAGE = '通知を読み込めませんでした。もう一度ベルを押すと再取得します。';
 
 function formatBadgeCount(count) {
     return count > BADGE_OVERFLOW_THRESHOLD ? '99+' : String(count);
@@ -65,15 +87,45 @@ export function initNotificationPopover() {
 
     if (!trigger || !panel || !itemsEl || !rowTemplate) return;
 
+    // 支給 Blade が書いている空状態の文言。失敗表示から復帰するときに書き戻す。
+    const defaultEmptyMessage = emptyEl?.textContent.trim() || FALLBACK_EMPTY_MESSAGE;
+
     let notifications = [];
     let unreadCount = 0;
     let activeTab = 'all';
     let isOpen = false;
     let isBusy = false;
-    // 管理者かどうかは初回の /api/v1/notifications 応答が届くまで判定できない(支給 DOM にロールの
-    // 目印がないため)。null = 未判定、false = 管理者(開かない)、true = 受講生 / コーチ。
+    let loadFailed = false;
+    // 管理者かどうかは /api/v1/notifications の応答でしか判定できない(支給 DOM にロールの目印がないため)。
+    // null = 未判定、false = 管理者(開かない)、true = 受講生 / コーチ。
     let popoverVisible = null;
+    let visibilityRequest = null;
     let csrfCookieRequest = null;
+
+    function visibilityStorageKey() {
+        const userId = document.querySelector('meta[name="auth-user-id"]')?.content ?? '';
+
+        return `${VISIBILITY_STORAGE_PREFIX}:${userId}`;
+    }
+
+    /** sessionStorage は無効化されている場合があるため、失敗しても機能を落とさない。 */
+    function readCachedVisibility() {
+        try {
+            const cached = window.sessionStorage.getItem(visibilityStorageKey());
+
+            return cached === null ? null : cached === '1';
+        } catch (error) {
+            return null;
+        }
+    }
+
+    function cacheVisibility(visible) {
+        try {
+            window.sessionStorage.setItem(visibilityStorageKey(), visible ? '1' : '0');
+        } catch (error) {
+            // 記憶できなくても動作は変わらない(毎ページ 1 回だけ判定しに行くだけ)。
+        }
+    }
 
     /**
      * Sanctum SPA Cookie 認証の素地(XSRF-TOKEN cookie の発行)。
@@ -87,6 +139,7 @@ export function initNotificationPopover() {
     }
 
     function applyResponse(response) {
+        loadFailed = false;
         notifications = response.data ?? [];
         unreadCount = response.unread_count ?? 0;
         updateBadges();
@@ -144,6 +197,14 @@ export function initNotificationPopover() {
         return fragment;
     }
 
+    /** 支給の空状態要素を、通常の空表示と取得失敗表示の両方に使い回す。 */
+    function showEmptyState(message) {
+        if (!emptyEl) return;
+
+        emptyEl.textContent = message;
+        emptyEl.classList.remove('hidden');
+    }
+
     function renderList() {
         const filtered = activeTab === 'unread'
             ? notifications.filter((notification) => notification.read_at === null)
@@ -152,7 +213,7 @@ export function initNotificationPopover() {
         itemsEl.innerHTML = '';
 
         if (filtered.length === 0) {
-            emptyEl?.classList.remove('hidden');
+            showEmptyState(loadFailed ? LOAD_ERROR_MESSAGE : defaultEmptyMessage);
             itemsEl.classList.add('hidden');
 
             return;
@@ -177,23 +238,29 @@ export function initNotificationPopover() {
         }
     }
 
-    /** ベル初回クリック時のみ走る。表示可否(ロール)判定を兼ねる。 */
-    async function resolveVisibility() {
-        try {
-            const response = await getJson('/api/v1/notifications');
+    /**
+     * 表示可否(ロール)だけを確定させる。セッション内で 1 回しか走らない。
+     * 一覧データはここでは反映しない(開くときに必ず読み込み中表示つきで取り直すため)。
+     *
+     * @returns {Promise<boolean|null>} true = 表示する / false = 管理者 / null = 判定できなかった
+     */
+    function resolveVisibility() {
+        visibilityRequest ??= getJson('/api/v1/notifications')
+            .then((response) => {
+                popoverVisible = response.popover_visible !== false;
+                cacheVisibility(popoverVisible);
 
-            popoverVisible = response.popover_visible !== false;
+                return popoverVisible;
+            })
+            .catch(() => {
+                // 判定できなかったときは確定させず記憶もしない。次にベルを押したときに判定からやり直す
+                // (通信断のあいだパネルを開かないのは、管理者に見せないための安全側の選択)。
+                visibilityRequest = null;
 
-            if (popoverVisible) {
-                applyResponse(response);
-            }
-        } catch (error) {
-            // 判定できなかった場合は安全側(恒久的に無効)へ倒さず、通常どおり操作可能にする
-            // (通信断でベルが永続的に死ぬより望ましい。中身は開いたときに再取得される)。
-            popoverVisible = true;
-        }
+                return null;
+            });
 
-        return popoverVisible;
+        return visibilityRequest;
     }
 
     async function reload() {
@@ -202,6 +269,8 @@ export function initNotificationPopover() {
         try {
             applyResponse(await getJson('/api/v1/notifications'));
         } catch (error) {
+            // 支給要素だけで「読み込めなかった」ことを伝える(空状態の文言を差し替える)。
+            loadFailed = true;
             notifications = [];
             renderList();
         } finally {
@@ -247,20 +316,16 @@ export function initNotificationPopover() {
             return;
         }
 
+        // 表示可否が未確定のあいだだけ応答を待つ(管理者にパネルを一瞬も見せないため)。
+        // 判定はページ表示時に先行して始まっており、記憶が効く 2 回目以降のページでは待ちが発生しない。
         if (popoverVisible === null) {
-            // 初回クリック: 判定と初期データ取得が済んでから開く(管理者にパネルを一瞬も見せない)。
-            const visible = await resolveVisibility();
-
-            if (!visible) return;
-
-            openPanel();
-
-            return;
+            await resolveVisibility();
         }
 
-        // 管理者は対象外。ポップオーバーを開かない(要件シート S4、拒否ステータスは持たない)。
-        if (popoverVisible === false) return;
+        // 管理者は対象外。判定できなかったときも開かない(次のクリックで判定からやり直す)。
+        if (popoverVisible !== true) return;
 
+        // 開く経路はここ 1 箇所だけ。必ず「開く → 読み込み中 → 取得」を通す。
         openPanel();
         await reload();
     }
@@ -339,4 +404,13 @@ export function initNotificationPopover() {
             window.location.href = destination;
         });
     });
+
+    // 表示可否だけを先に確定させておく(記憶があれば問い合わせない)。
+    // これによりベルを押した時点では役割が分かっており、初回クリックも 2 回目以降と同じ
+    // 「先に開いて読み込み中を出す」経路を通れる。
+    popoverVisible = readCachedVisibility();
+
+    if (popoverVisible === null) {
+        void resolveVisibility();
+    }
 }
