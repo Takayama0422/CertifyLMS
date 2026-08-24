@@ -141,5 +141,18 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 `.env.example` をコピーするだけで、すべての機能がローカルで動作します（メールは Mailpit に配信されます）。
 
 - `PUSHER_*` — チャットのリアルタイム配信に使用します。有効にする場合は Pusher のキーを取得して設定し、`BROADCAST_DRIVER=pusher` に変更してください。未設定（既定の `BROADCAST_DRIVER=log`）でもメッセージの送受信自体は動作し、相手画面へのリアルタイム反映のみ行われません
+- `STRIPE_SECRET` / `STRIPE_WEBHOOK_SECRET` — 追加面談パックの購入（Stripe 連携、S-A-03）に使用します。未設定でもアプリ全体・既存機能は問題なく動作し、購入チェックアウトの開始と Webhook 受信のみ利用できません（503 を返します）。
+
+  取得手順:
+  1. [Stripe ダッシュボード](https://dashboard.stripe.com/test/apikeys)（テストモード）で「シークレットキー」を取得し `STRIPE_SECRET` に設定します。
+  2. ローカルで Webhook 通知を受け取るには [Stripe CLI](https://stripe.com/docs/stripe-cli) を使います。
+
+     ```bash
+     stripe login
+     stripe listen --forward-to localhost:8000/webhooks/stripe
+     ```
+
+     起動時に表示される `whsec_...` を `STRIPE_WEBHOOK_SECRET` に設定してください（`stripe listen` を再実行するたびに値が変わる場合があります）。
+  3. 受講生アカウントでログインし「追加面談を購入」から決済画面へ進むと、テストカード（例: `4242 4242 4242 4242` / 任意の将来日付 / 任意の CVC）で決済を完了できます。`stripe listen` を起動していれば、決済完了の通知が `/webhooks/stripe` に届き、残面談回数へ自動反映されます。
 
 新しい環境変数やセットアップ手順を追加した場合は、`.env.example` と本 README に追記し、チームの誰でも環境を再現できる状態を保ってください。

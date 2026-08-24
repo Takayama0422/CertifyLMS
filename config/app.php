@@ -8,6 +8,7 @@ use App\Providers\BroadcastServiceProvider;
 use App\Providers\EventServiceProvider;
 use App\Providers\FortifyServiceProvider;
 use App\Providers\MockExamServiceProvider;
+use App\Providers\PaymentServiceProvider;
 use App\Providers\QuizAnsweringServiceProvider;
 use App\Providers\RouteServiceProvider;
 use Illuminate\Support\Facades\Facade;
@@ -180,6 +181,7 @@ return [
         FortifyServiceProvider::class,
         QuizAnsweringServiceProvider::class,
         MockExamServiceProvider::class,
+        PaymentServiceProvider::class,
         RouteServiceProvider::class,
     ])->toArray(),
 
