@@ -34,6 +34,10 @@ services:
                 WWWGROUP: '${WWWGROUP}'
         image: 'sail-8.5/app'
         command: ['php', 'artisan', 'queue:work', '--tries=5', '--backoff=10,30,60,300,900']
+        # `queue:work` は `php artisan queue:restart` を受け取ると終了コード 0 で正常終了する。
+        # 再起動ポリシーが無いとコンテナが停止したまま復帰せず、以後の通知・メールがキューに
+        # 滞留し続けるため、明示的に再起動させる(手動 stop したときだけ止まったままにする)。
+        restart: unless-stopped
         environment:
             WWWUSER: '${WWWUSER}'
             LARAVEL_SAIL: 1

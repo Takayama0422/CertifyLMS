@@ -10,15 +10,17 @@ use App\Mail\InvitationMail;
 use App\Models\Invitation;
 use App\Models\Meeting;
 use App\Models\User;
-use App\Notifications\MeetingReminderNotification;
 use App\Notifications\MeetingReservedNotification;
 use App\UseCases\Announcement\DispatchAnnouncementAction;
 use App\UseCases\Notification\SendMeetingRemindersAction;
-use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use RuntimeException;
+use Symfony\Component\Mailer\Exception\TransportException;
+use Symfony\Component\Mailer\SentMessage;
+use Symfony\Component\Mailer\Transport\AbstractTransport;
 use Tests\TestCase;
 
 /**
@@ -36,7 +38,51 @@ class AsyncNotificationDeliveryTest extends TestCase
 
     private function useDatabaseQueue(): void
     {
-        config(['queue.default' => 'database']);
+        config([
+            'queue.default' => 'database',
+            // 失敗ジョブの記録先を、テストが実際に使っている接続へ揃える
+            'queue.failed.database' => config('database.default'),
+        ]);
+    }
+
+    /**
+     * mail チャネルの送信を必ず失敗させる擬似トランスポートへ差し替える。
+     *
+     * 一時的な送信失敗(SMTP 接続エラー等)を再現するためのもので、送信内容そのものは変えない。
+     */
+    private function useFailingMailTransport(): void
+    {
+        Mail::extend('failing', fn (array $config = []): AbstractTransport => new class extends AbstractTransport
+        {
+            protected function doSend(SentMessage $message): void
+            {
+                throw new TransportException('SMTP 接続に失敗しました(テスト用の擬似障害)');
+            }
+
+            public function __toString(): string
+            {
+                return 'failing://';
+            }
+        });
+
+        config([
+            'mail.mailers.failing' => ['transport' => 'failing'],
+            'mail.default' => 'failing',
+        ]);
+
+        Mail::forgetMailers();
+    }
+
+    /** worker を 1 ジョブ分だけ動かす(待機時間が明けていないジョブは拾われない)。 */
+    private function workOneJob(): void
+    {
+        Artisan::call('queue:work', ['--once' => true, '--sleep' => 0]);
+    }
+
+    /** キューに 1 件だけ残っているジョブの試行回数。 */
+    private function pendingJobAttempts(): int
+    {
+        return (int) DB::table('jobs')->value('attempts');
     }
 
     // --- 壊れやすい点 3: データ確定(トランザクション commit)後に送信をキューへ投入する ---
@@ -73,11 +119,12 @@ class AsyncNotificationDeliveryTest extends TestCase
         $this->assertDatabaseCount('jobs', 1);
     }
 
-    public function test_meeting_reserved_notification_is_not_queued_when_the_wrapping_transaction_rolls_back(): void
+    public function test_meeting_reserved_notification_is_queued_only_after_the_wrapping_transaction_commits(): void
     {
         $this->useDatabaseQueue();
         $meeting = Meeting::factory()->reserved()->create();
 
+        // 1) ロールバックした場合: 通知はキューへ積まれない(配信が漏れない)
         try {
             DB::transaction(function () use ($meeting): void {
                 $meeting->student->notify(new MeetingReservedNotification($meeting));
@@ -88,30 +135,80 @@ class AsyncNotificationDeliveryTest extends TestCase
             // 期待どおりのロールバック
         }
 
-        // ロールバックされたトランザクション内で発火した通知はキューへ積まれてはならない
         $this->assertDatabaseCount('jobs', 0);
+
+        // 2) commit した場合: commit 前は積まれず、commit 後に積まれる
+        $queuedBeforeCommit = null;
+
+        DB::transaction(function () use ($meeting, &$queuedBeforeCommit): void {
+            $meeting->student->notify(new MeetingReservedNotification($meeting));
+
+            $queuedBeforeCommit = DB::table('jobs')->count();
+        });
+
+        // commit 前に積まれていたら、`ShouldQueueAfterCommit` ではなく素の `ShouldQueue` になっている
+        $this->assertSame(0, $queuedBeforeCommit, 'commit 前にキューへ積まれてはならない');
+
+        // commit 後は「受信者 1 名 × database / mail の 2 チャネル」= 2 件。
+        // 通知が同期送信のままなら 0 件のままとなり、この検証で落ちる
+        $this->assertDatabaseCount('jobs', 2);
+
+        // worker 未処理のためまだ配信されていない。
+        // 同期送信のままなら commit 済みの database 通知が 1 件残り、この検証で落ちる
+        $this->assertDatabaseCount('notifications', 0);
     }
 
-    // --- 壊れやすい点 1: ジョブ実行時にモデルが再取得される。対象が削除済みでも破綻しないこと ---
+    // --- 壊れやすい点 1: 送信失敗時の段階的リトライと、上限超過時の失敗ジョブ記録・再投入 ---
 
-    public function test_serialized_reminder_notification_throws_model_not_found_when_meeting_is_deleted_before_processing(): void
+    public function test_mail_delivery_failure_is_retried_with_staged_backoff_and_finally_recorded_as_a_failed_job(): void
     {
+        $this->useDatabaseQueue();
+        $this->useFailingMailTransport();
+
         $meeting = Meeting::factory()->reserved()->create();
-        $notification = new MeetingReminderNotification($meeting, MeetingReminderWindow::Eve);
+        $meeting->student->notify(new MeetingReservedNotification($meeting));
 
-        // SendQueuedNotifications ジョブが実際に行うのと同じ「シリアライズ → (時間経過) → アンシリアライズ」
-        // を模擬する。Notification 基底クラスの SerializesModels により、Eloquent モデルは ID 参照へ
-        // 変換されてシリアライズされ、アンシリアライズ時に DB から再取得される。
-        $serialized = serialize($notification);
+        // 同期送信のままなら notify() の中で送信例外が発火元へ伝播し、ここへ到達できない。
+        // 非同期化されていれば「受信者 1 名 × database / mail の 2 チャネル」= 2 件が積まれるだけ
+        $this->assertDatabaseCount('jobs', 2);
+        $this->assertDatabaseCount('notifications', 0);
+        $this->assertDatabaseCount('failed_jobs', 0);
 
-        $meeting->delete();
+        // 1 回目: database チャネルのジョブは成功して消える(mail チャネルのジョブだけが残る)
+        $this->workOneJob();
+        $this->assertDatabaseCount('notifications', 1);
+        $this->assertDatabaseCount('jobs', 1);
 
-        // 再取得先が消えている場合、ModelNotFoundException という「型のついた」例外が飛ぶ。
-        // これはキュー worker が捕捉して 1 ジョブだけを失敗させる例外であり、worker プロセスや
-        // 他のジョブを巻き込むフェイタルエラーにはならない。
-        $this->expectException(ModelNotFoundException::class);
+        // 2 回目: mail チャネルのジョブが失敗し、キューから消えずに再投入される
+        $this->workOneJob();
+        $this->assertSame(1, $this->pendingJobAttempts());
+        $this->assertDatabaseCount('failed_jobs', 0);
 
-        unserialize($serialized);
+        // 待機時間が明けるまでは worker が拾わない(= 段階的な待機を挟んでいる)
+        $this->workOneJob();
+        $this->assertSame(1, $this->pendingJobAttempts());
+
+        // 待機を明けさせながら、上限(`$tries` = 5)の手前まで試行させる
+        foreach ([2, 3, 4] as $expectedAttempts) {
+            $this->travel(901)->seconds();
+            $this->workOneJob();
+
+            $this->assertSame($expectedAttempts, $this->pendingJobAttempts());
+            $this->assertDatabaseCount('failed_jobs', 0);
+        }
+
+        // 5 回目の試行で上限に達し、失敗ジョブとして記録される(送信はロストしない)
+        $this->travel(901)->seconds();
+        $this->workOneJob();
+
+        $this->assertDatabaseCount('jobs', 0);
+        $this->assertDatabaseCount('failed_jobs', 1);
+
+        // 記録された失敗ジョブは後から再投入できる
+        Artisan::call('queue:retry', ['id' => ['all']]);
+
+        $this->assertDatabaseCount('failed_jobs', 0);
+        $this->assertDatabaseCount('jobs', 1);
     }
 
     // --- 壊れやすい点 2: お知らせ配信の「配信実績の記録」と「通知の送信」の整合 ---

@@ -15,9 +15,10 @@ use Illuminate\Notifications\Notification;
  *
  * チャネルは常に database + mail の両方(要件シート S8: 全種別ともアプリ内 + メール)。
  *
- * **T-A-05 でキュー非同期化**: `ShouldQueueAfterCommit` を実装し、`database` / `mail` 両チャネルへの
- * 配信を 1 つのバックグラウンドジョブ(`SendQueuedNotifications`)にまとめてキューへ逃がす
- * (S-B-04 時点では「メール配信のキュー非同期化はスコープ外」としていたが、本チケットで対象に含める)。
+ * **T-A-05 でキュー非同期化**: `ShouldQueueAfterCommit` を実装し、配信をバックグラウンドのジョブ
+ * (`SendQueuedNotifications`)へ逃がす(S-B-04 時点では「メール配信のキュー非同期化はスコープ外」と
+ * していたが、本チケットで対象に含める)。Laravel は「受信者 × チャネル」ごとに 1 ジョブを積むため、
+ * `database` / `mail` は別々のジョブになる(受信者 1 名なら 2 件)。片方の失敗が他方を巻き込まない。
  * `ShouldQueueAfterCommit` により、発火元が `DB::transaction()` 内から `notify()` を呼んでいても、
  * 実際にキューへ積まれるのはトランザクション commit 後になる(ロールバック時に配信が漏れない)。
  * トランザクションの外から呼ばれた場合(既に `DB::afterCommit()` 内 / トランザクション外の同期処理)は
