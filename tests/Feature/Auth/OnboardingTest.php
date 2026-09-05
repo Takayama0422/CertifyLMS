@@ -79,6 +79,23 @@ class OnboardingTest extends TestCase
         $response->assertSee($invitation->role->label());
     }
 
+    public function test_show_returns_410_for_url_already_used(): void
+    {
+        $invitation = $this->freshInvitation();
+        $showUrl = $this->signedShowUrl($invitation);
+
+        $this->post($this->postUrl($invitation), [
+            'name' => '受講太郎',
+            'password' => 'secret-pass',
+            'password_confirmation' => 'secret-pass',
+        ]);
+
+        // 同じ招待 URL への再アクセスは使用済みとして拒否され、オンボーディングを再実行できない
+        $response = $this->get($showUrl);
+
+        $response->assertStatus(410);
+    }
+
     public function test_show_renders_invalid_view_for_tampered_signature(): void
     {
         $invitation = $this->freshInvitation();
