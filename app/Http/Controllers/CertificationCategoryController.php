@@ -53,6 +53,7 @@ class CertificationCategoryController extends Controller
         $action($category);
 
         return redirect()
-            ->route('admin.certification-categories.index');
+            ->route('admin.certification-categories.index')
+            ->with('success', '分類を削除しました。');
     }
 }
