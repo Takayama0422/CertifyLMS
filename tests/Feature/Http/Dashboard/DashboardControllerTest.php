@@ -8,6 +8,7 @@ use App\Models\Certificate;
 use App\Models\Certification;
 use App\Models\Chapter;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
 use App\Models\LearningSession;
 use App\Models\Part;
 use App\Models\Plan;
@@ -114,6 +115,26 @@ class DashboardControllerTest extends TestCase
         $response->assertOk();
         $response->assertSee(route('enrollments.show', $enrollment->id));
         $response->assertSee(route('learning.enrollments.show', $enrollment->id));
+    }
+
+    public function test_student_dashboard_renders_personal_goal_timeline(): void
+    {
+        // Arrange: 未達成 1 件 + 達成済 1 件の個人目標
+        $plan = Plan::factory()->published()->create();
+        $student = User::factory()->student()->inProgress()->withPlan($plan)->create();
+        $cert = Certification::factory()->published()->create();
+        $enrollment = Enrollment::factory()->for($student)->for($cert)->learning()->create();
+        EnrollmentGoal::factory()->forEnrollment($enrollment)->create(['title' => '過去問 5 年分を解き終える']);
+        EnrollmentGoal::factory()->forEnrollment($enrollment)->achieved()->create(['title' => '教材を一周読み終える']);
+
+        // Act
+        $response = $this->actingAs($student)->get(route('dashboard.index'));
+
+        // Assert: 個人目標欄が正しく描画され、取得失敗時のフォールバック文言は出ない
+        $response->assertOk();
+        $response->assertSee('過去問 5 年分を解き終える');
+        $response->assertSee('教材を一周読み終える');
+        $response->assertDontSee('個人目標を取得できませんでした。');
     }
 
     public function test_admin_dashboard_renders_even_when_kpi_service_throws(): void

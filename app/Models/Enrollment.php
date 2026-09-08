@@ -143,6 +143,24 @@ class Enrollment extends Model
         return $this->hasOne(LearningHourTarget::class);
     }
 
+    /**
+     * 個人学習目標(受講生本人 CRUD)。未達成(target_date 昇順)→ 達成済の順で並べ、
+     * 一覧が「達成状況で分かりやすい順序」になるようにする。
+     *
+     * `with('enrollment')` で各 EnrollmentGoal に逆リレーションを事前ロードしておくことで、
+     * 一覧画面が目標ごとに評価する認可判定(`$goal->enrollment->…` を参照する Policy)が
+     * 目標 1 件につき 1 クエリ発行する N+1 を防ぐ(全件同一 Enrollment のため追加は 1 クエリのみ)。
+     *
+     * @return HasMany<EnrollmentGoal, $this>
+     */
+    public function goals(): HasMany
+    {
+        return $this->hasMany(EnrollmentGoal::class)
+            ->with('enrollment')
+            ->orderByRaw('achieved_at IS NOT NULL')
+            ->orderBy('target_date');
+    }
+
     public function scopeLearning(Builder $query): Builder
     {
         return $query->where('status', EnrollmentStatus::Learning->value);
