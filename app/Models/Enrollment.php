@@ -128,6 +128,17 @@ class Enrollment extends Model
     }
 
     /**
+     * コーチメモ(コーチ / 管理者が記録する業務記録、受講生には非公開)。
+     * 時系列表示は一覧側(`enrollment-note._list`)が明示的に order するため、ここではデフォルト順のみ。
+     *
+     * @return HasMany<EnrollmentNote, $this>
+     */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(EnrollmentNote::class);
+    }
+
+    /**
      * @return HasMany<LearningSession, $this>
      */
     public function learningSessions(): HasMany
