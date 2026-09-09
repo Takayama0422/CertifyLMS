@@ -101,6 +101,24 @@ class IndexTest extends TestCase
         ];
     }
 
+    public function test_list_prioritizes_published_over_draft_and_archived(): void
+    {
+        $admin = User::factory()->admin()->create();
+        // 作成順はアーカイブ→下書き→公開中。並び順が公開中優先であれば先頭は公開中になる。
+        MeetingPack::factory()->archived()->create(['name' => 'Archived Pack', 'sort_order' => 1]);
+        MeetingPack::factory()->draft()->create(['name' => 'Draft Pack', 'sort_order' => 1]);
+        MeetingPack::factory()->published()->create(['name' => 'Published Pack', 'sort_order' => 1]);
+
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.index'));
+
+        $response->assertOk();
+        $plans = $response->viewData('plans');
+        $this->assertSame(
+            ['Published Pack', 'Draft Pack', 'Archived Pack'],
+            $plans->pluck('name')->all(),
+        );
+    }
+
     public function test_paginates_20_per_page(): void
     {
         $admin = User::factory()->admin()->create();
