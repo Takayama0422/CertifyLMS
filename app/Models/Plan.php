@@ -84,13 +84,12 @@ class Plan extends Model
     }
 
     /**
+     * 公開中を優先し、下書き・アーカイブが続く並び順(`app/Models/MeetingPack.php` と同じ考え方)。
+     * 同順位内は sort_order 昇順 → created_at 降順。
+     *
      * @param Builder<Plan> $query
      *
      * @return Builder<Plan>
-     */
-    /**
-     * 公開中を優先し、下書き・アーカイブが続く並び順(`app/Models/MeetingPack.php` と同じ考え方)。
-     * 同順位内は sort_order 昇順 → created_at 降順。
      */
     public function scopeOrdered(Builder $query): Builder
     {

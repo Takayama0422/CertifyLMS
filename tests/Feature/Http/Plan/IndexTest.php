@@ -44,6 +44,23 @@ class IndexTest extends TestCase
         );
     }
 
+    public function test_list_orders_by_sort_order_then_created_at_within_same_status(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $older = Plan::factory()->published()->create(['name' => 'Same Order Older', 'sort_order' => 5, 'created_at' => now()->subDay()]);
+        $newer = Plan::factory()->published()->create(['name' => 'Same Order Newer', 'sort_order' => 5, 'created_at' => now()]);
+        $first = Plan::factory()->published()->create(['name' => 'Lower Sort Order', 'sort_order' => 1, 'created_at' => now()->subDays(2)]);
+
+        $response = $this->actingAs($admin)->get(route('admin.plans.index'));
+
+        $response->assertOk();
+        $plans = $response->viewData('plans');
+        $this->assertSame(
+            [$first->name, $newer->name, $older->name],
+            $plans->pluck('name')->all(),
+        );
+    }
+
     public function test_coach_cannot_access_index(): void
     {
         $coach = User::factory()->coach()->create();
