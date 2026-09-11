@@ -88,8 +88,23 @@ class Plan extends Model
      *
      * @return Builder<Plan>
      */
+    /**
+     * 公開中を優先し、下書き・アーカイブが続く並び順(`app/Models/MeetingPack.php` と同じ考え方)。
+     * 同順位内は sort_order 昇順 → created_at 降順。
+     */
     public function scopeOrdered(Builder $query): Builder
     {
+        $driver = $query->getConnection()->getDriverName();
+
+        if ($driver === 'mysql') {
+            $query->orderByRaw("FIELD(status, 'published', 'draft', 'archived')");
+        } else {
+            // SQLite では FIELD() が使えないため CASE 式で同等の優先順位を表現する
+            $query->orderByRaw(
+                "CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 WHEN 'archived' THEN 3 ELSE 4 END"
+            );
+        }
+
         return $query->orderBy('sort_order')->orderByDesc('created_at');
     }
 }

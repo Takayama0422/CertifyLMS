@@ -26,6 +26,24 @@ class IndexTest extends TestCase
         $response->assertViewHas('plans');
     }
 
+    public function test_list_prioritizes_published_over_draft_and_archived(): void
+    {
+        $admin = User::factory()->admin()->create();
+        // 作成順はアーカイブ→下書き→公開中。並び順が公開中優先であれば先頭は公開中になる。
+        Plan::factory()->archived()->create(['name' => 'Archived Plan', 'sort_order' => 1]);
+        Plan::factory()->draft()->create(['name' => 'Draft Plan', 'sort_order' => 1]);
+        Plan::factory()->published()->create(['name' => 'Published Plan', 'sort_order' => 1]);
+
+        $response = $this->actingAs($admin)->get(route('admin.plans.index'));
+
+        $response->assertOk();
+        $plans = $response->viewData('plans');
+        $this->assertSame(
+            ['Published Plan', 'Draft Plan', 'Archived Plan'],
+            $plans->pluck('name')->all(),
+        );
+    }
+
     public function test_coach_cannot_access_index(): void
     {
         $coach = User::factory()->coach()->create();
