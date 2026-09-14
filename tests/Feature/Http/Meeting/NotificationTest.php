@@ -18,7 +18,9 @@ use Tests\TestCase;
 
 /**
  * 面談予約(`POST .../meetings`)/ キャンセル(`POST /meetings/{meeting}/cancel`)が
- * 当事者(受講生 + 担当コーチ)双方へ `meeting_reserved` / `meeting_canceled` 通知を発火することを検証する。
+ * 「操作を行っていない側」のみへ `meeting_reserved` / `meeting_canceled` 通知を発火することを検証する
+ * (PM 指摘により片方向配信に統一。予約操作は常に受講生本人が行うため予約通知は担当コーチのみ、
+ * キャンセル通知は操作していない側のみへ届く)。
  */
 class NotificationTest extends TestCase
 {
@@ -34,7 +36,7 @@ class NotificationTest extends TestCase
         ]);
     }
 
-    public function test_both_parties_are_notified_when_meeting_is_reserved(): void
+    public function test_only_coach_is_notified_when_meeting_is_reserved(): void
     {
         $student = User::factory()->student()->inProgress()->create(['max_meetings' => 3]);
         $admin = User::factory()->admin()->create();
@@ -53,7 +55,7 @@ class NotificationTest extends TestCase
             'topic' => '相談したい',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseMissing('notifications', [
             'notifiable_id' => $student->id,
             'type' => MeetingReservedNotification::class,
         ]);
@@ -63,7 +65,7 @@ class NotificationTest extends TestCase
         ]);
     }
 
-    public function test_both_parties_are_notified_when_meeting_is_canceled(): void
+    public function test_only_coach_is_notified_when_student_cancels(): void
     {
         $student = User::factory()->student()->inProgress()->create(['max_meetings' => 5]);
         $coach = User::factory()->coach()->inProgress()->create();
@@ -73,12 +75,32 @@ class NotificationTest extends TestCase
 
         $this->actingAs($student)->post(route('meetings.cancel', $meeting));
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseMissing('notifications', [
             'notifiable_id' => $student->id,
             'type' => MeetingCanceledNotification::class,
         ]);
         $this->assertDatabaseHas('notifications', [
             'notifiable_id' => $coach->id,
+            'type' => MeetingCanceledNotification::class,
+        ]);
+    }
+
+    public function test_only_student_is_notified_when_coach_cancels(): void
+    {
+        $student = User::factory()->student()->inProgress()->create(['max_meetings' => 5]);
+        $coach = User::factory()->coach()->inProgress()->create();
+        $meeting = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)->create([
+            'scheduled_at' => now()->addDays(3)->startOfHour(),
+        ]);
+
+        $this->actingAs($coach)->post(route('meetings.cancel', $meeting));
+
+        $this->assertDatabaseMissing('notifications', [
+            'notifiable_id' => $coach->id,
+            'type' => MeetingCanceledNotification::class,
+        ]);
+        $this->assertDatabaseHas('notifications', [
+            'notifiable_id' => $student->id,
             'type' => MeetingCanceledNotification::class,
         ]);
     }
@@ -94,7 +116,7 @@ class NotificationTest extends TestCase
         $this->actingAs($student)->post(route('meetings.cancel', $meeting));
 
         $this->assertDatabaseMissing('notifications', ['notifiable_id' => $coach->id]);
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseMissing('notifications', [
             'notifiable_id' => $student->id,
             'type' => MeetingCanceledNotification::class,
         ]);
