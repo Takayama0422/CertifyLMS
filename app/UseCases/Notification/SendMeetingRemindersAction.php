@@ -28,9 +28,9 @@ use Throwable;
  * 分単位でずれている(コーチ対応可能時間帯は分単位で登録できる)場合でも、次回以降の実行で
  * 確実に拾える。
  *
- * - `one_hour_before`: 「開始 15 分前〜1 時間前」を対象にする(要件シート S12-05 の「開始 1 時間前」を
- *   45 分幅に広げて起動間隔のずれを吸収しつつ、開始直前まで迫った面談には「まもなく始まります」
- *   にすら遅すぎる催促を今さら送らないよう、開始 15 分前で上限を打ち切る)
+ * - `one_hour_before`: コマンド実行時点から「55〜65 分後」に開始する面談を対象にする(PM 指摘により
+ *   要件シート S12-05 の「開始 1 時間前」の趣旨を変えない 10 分幅に限定。取りこぼし・重複配信への
+ *   対応は対象時間の拡大ではなく、下記の (面談, 配信窓, 受信者) 単位の配信済み記録で行う)
  * - `eve`: 「翌日に予定されている面談」を対象にする(従来どおり日付のみで判定。時刻では絞らない)。
  *   通知文言が「明日」と明言するため、日付をまたいでからの遅延配信はしない
  *   (日付が変わればその面談は `one_hour_before` 側で拾われる)
@@ -48,8 +48,11 @@ use Throwable;
  */
 final class SendMeetingRemindersAction
 {
-    /** `one_hour_before` の対象を「開始 15 分前」までに打ち切る猶予(分)。 */
-    private const ONE_HOUR_BEFORE_GRACE_MINUTES = 15;
+    /** `one_hour_before` の対象窓の下限(コマンド実行時点からの分数)。 */
+    private const ONE_HOUR_BEFORE_LOWER_MINUTES = 55;
+
+    /** `one_hour_before` の対象窓の上限(コマンド実行時点からの分数)。 */
+    private const ONE_HOUR_BEFORE_UPPER_MINUTES = 65;
 
     /**
      * `sent_at` 未設定のまま何分経過した予約行を「送信プロセスが落ちた取りこぼし」とみなし
@@ -176,13 +179,12 @@ final class SendMeetingRemindersAction
             // 「翌日」の予約すべてが対象(要件シート S12-05)。時刻では絞らないため、20:00 の起動が
             // 1 回落ちても、同じ日付のうちに再実行(Kernel 側で複数回起動)すれば取りこぼさない。
             MeetingReminderWindow::Eve => $query->whereDate('scheduled_at', Carbon::now()->addDay()->toDateString()),
-            // 「開始 15 分前 〜 1 時間前」を対象にする(45 分幅)。コーチ対応可能時間帯は分単位で
-            // 登録できるため面談開始時刻も毎時 00 分とは限らず、起動間隔より十分広い幅を持たせることで
-            // 起動時刻のずれ・遅延・分単位オフセットのいずれでも取りこぼさない
-            // (Kernel 側の起動間隔をこの幅より短くすることで保証する)。
+            // コマンド実行時点から「55〜65 分後」に開始する面談を対象にする(要件シート S12-05 の
+            // 「開始 1 時間前」を維持する 10 分幅)。取りこぼし・重複防止は対象時間の拡大ではなく、
+            // (面談, 配信窓, 受信者) 単位の配信済み記録(reserve/reclaim)で担保する。
             MeetingReminderWindow::OneHourBefore => $query->whereBetween('scheduled_at', [
-                Carbon::now()->addMinutes(self::ONE_HOUR_BEFORE_GRACE_MINUTES),
-                Carbon::now()->addHour(),
+                Carbon::now()->addMinutes(self::ONE_HOUR_BEFORE_LOWER_MINUTES),
+                Carbon::now()->addMinutes(self::ONE_HOUR_BEFORE_UPPER_MINUTES),
             ]),
         };
     }

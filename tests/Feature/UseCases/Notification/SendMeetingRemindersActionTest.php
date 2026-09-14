@@ -68,6 +68,24 @@ class SendMeetingRemindersActionTest extends TestCase
         $this->assertDatabaseMissing('notifications', ['notifiable_id' => $tooSoon->student_id]);
     }
 
+    public function test_one_hour_before_window_boundaries_are_55_to_65_minutes(): void
+    {
+        // PM 指摘: 対象窓は「コマンド実行時点から 55〜65 分後」に厳密に限定する(15〜60 分では要件が変わる)。
+        Carbon::setTestNow(Carbon::parse('2026-06-01 09:00:00'));
+        $tooEarly = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 09:54:00')]);
+        $lowerBound = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 09:55:00')]);
+        $upperBound = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 10:05:00')]);
+        $tooLate = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 10:06:00')]);
+
+        $count = $this->action()(MeetingReminderWindow::OneHourBefore);
+
+        $this->assertSame(4, $count);
+        $this->assertDatabaseMissing('notifications', ['notifiable_id' => $tooEarly->student_id]);
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $lowerBound->student_id, 'type' => MeetingReminderNotification::class]);
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $upperBound->student_id, 'type' => MeetingReminderNotification::class]);
+        $this->assertDatabaseMissing('notifications', ['notifiable_id' => $tooLate->student_id]);
+    }
+
     public function test_canceled_and_completed_meetings_are_excluded(): void
     {
         $canceled = Meeting::factory()->canceled()->create(['scheduled_at' => now()->addDay()->setTime(15, 0)]);
@@ -134,10 +152,9 @@ class SendMeetingRemindersActionTest extends TestCase
     public function test_one_hour_before_window_catches_meetings_with_non_hour_aligned_minutes(): void
     {
         // コーチ対応可能時間帯は分単位で登録できるため、面談は毎時 00 分スロットとは限らない。
-        // 旧実装(now()+1h の ±2 分幅)は「ちょうど 1 時間後」の面談しか捕捉できず、この :30 面談は
-        // どの起動タイミングでも永久に窓へ入らなかった(レビュー指摘 1 の再現)。
+        // 窓の下限・上限のどちらにも寄らない非キリ番の面談(62 分後)でも捕捉できることを確認する。
         Carbon::setTestNow(Carbon::parse('2026-06-01 09:00:00'));
-        $meeting = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 09:30:00')]);
+        $meeting = Meeting::factory()->reserved()->create(['scheduled_at' => Carbon::parse('2026-06-01 10:02:00')]);
 
         $count = $this->action()(MeetingReminderWindow::OneHourBefore);
 
@@ -146,16 +163,17 @@ class SendMeetingRemindersActionTest extends TestCase
         $this->assertDatabaseHas('notifications', ['notifiable_id' => $meeting->coach_id, 'type' => MeetingReminderNotification::class]);
     }
 
-    public function test_one_hour_before_window_catches_up_after_a_delayed_run(): void
+    public function test_one_hour_before_window_does_not_catch_up_meetings_that_already_passed_the_window(): void
     {
-        // 本来「1 時間前(今から見て 40 分前)」に送られているはずが、直前の起動が丸ごと落ちた/
-        // 大幅に遅延したことを想定し、今初めてチェックする状況を再現する。取りこぼさないこと。
+        // PM 指摘により対象窓を 55〜65 分後に厳密化したため、起動が遅れて既に窓を通り過ぎた面談
+        // (今から 20 分後)はもう one_hour_before の対象にならない(取りこぼし救済のための
+        // 窓拡大はしない、という仕様変更後の挙動を明示する)。
         $meeting = Meeting::factory()->reserved()->create(['scheduled_at' => now()->addMinutes(20)]);
 
         $count = $this->action()(MeetingReminderWindow::OneHourBefore);
 
-        $this->assertSame(2, $count);
-        $this->assertDatabaseHas('notifications', ['notifiable_id' => $meeting->student_id, 'type' => MeetingReminderNotification::class]);
+        $this->assertSame(0, $count);
+        $this->assertDatabaseMissing('notifications', ['notifiable_id' => $meeting->student_id]);
     }
 
     public function test_eve_window_still_delivers_when_the_scheduled_20_00_run_was_skipped(): void
