@@ -8,7 +8,7 @@ use App\Enums\NotificationType;
 use App\Models\Meeting;
 
 /**
- * 面談キャンセル通知。当事者(受講生 / 担当コーチ)双方へ配信する。
+ * 面談キャンセル通知。当事者のうち操作を行っていない側へ配信する(操作者本人へは配信しない)。
  */
 final class MeetingCanceledNotification extends BusinessEventNotification
 {
