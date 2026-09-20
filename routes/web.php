@@ -27,6 +27,7 @@ use App\Http\Controllers\MockExamController;
 use App\Http\Controllers\MockExamQuestionController;
 use App\Http\Controllers\MockExamSessionController;
 use App\Http\Controllers\MockExamSessionMonitorController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PartController;
 use App\Http\Controllers\QaReplyController;
 use App\Http\Controllers\QaThreadController;
@@ -82,6 +83,15 @@ Route::middleware('auth')->group(function () {
     Route::get('enrollments/{enrollment}', [EnrollmentController::class, 'show'])
         ->withTrashed()
         ->name('enrollments.show');
+});
+
+// ============================================================
+// 認証後の全ロール共通ルート — 通知一覧 / 既読化(自分宛のみ、認可は NotificationPolicy)
+// ============================================================
+Route::middleware('auth')->prefix('notifications')->name('notifications.')->group(function () {
+    Route::get('/', [NotificationController::class, 'index'])->name('index');
+    Route::post('read-all', [NotificationController::class, 'markAllAsRead'])->name('markAllAsRead');
+    Route::post('{notification}/read', [NotificationController::class, 'markAsRead'])->name('markAsRead');
 });
 
 // ============================================================
