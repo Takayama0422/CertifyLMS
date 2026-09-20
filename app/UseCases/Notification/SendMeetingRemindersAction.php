@@ -188,8 +188,9 @@ final class SendMeetingRemindersAction
             // 1 回落ちても、同じ日付のうちに再実行(Kernel 側で複数回起動)すれば取りこぼさない。
             MeetingReminderWindow::Eve => $query->whereDate('scheduled_at', Carbon::now()->addDay()->toDateString()),
             // コマンド実行時点から「55〜65 分後」に開始する面談を対象にする(要件シート S12-05 の
-            // 「開始 1 時間前」を維持する 10 分幅)。取りこぼし・重複防止は対象時間の拡大ではなく、
-            // (面談, 配信窓, 受信者) 単位の配信済み記録(reserve/reclaim)で担保する。
+            // 「開始 1 時間前」を維持する 10 分幅)。取りこぼし防止は Kernel::schedule() の起動間隔
+            // (10 分)を本窓幅(10 分)以下に保つことで担保し、窓の境界に重なった面談の重複防止は
+            // (面談, 配信窓, 受信者) 単位の配信済み記録(reserve/reclaim)側の UNIQUE 制約で担保する。
             MeetingReminderWindow::OneHourBefore => $query->whereBetween('scheduled_at', [
                 Carbon::now()->addMinutes(self::ONE_HOUR_BEFORE_LOWER_MINUTES),
                 Carbon::now()->addMinutes(self::ONE_HOUR_BEFORE_UPPER_MINUTES),
