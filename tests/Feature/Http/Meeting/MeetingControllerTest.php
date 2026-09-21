@@ -6,13 +6,17 @@ namespace Tests\Feature\Http\Meeting;
 
 use App\Enums\MeetingQuotaTransactionType;
 use App\Enums\MeetingStatus;
+use App\Events\MeetingReserved;
 use App\Models\Certification;
 use App\Models\CoachAvailability;
 use App\Models\Enrollment;
 use App\Models\Meeting;
+use App\Models\MeetingQuotaTransaction;
 use App\Models\User;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -164,6 +168,34 @@ class MeetingControllerTest extends TestCase
         $this->assertSame(MeetingStatus::Canceled, $meeting->fresh()->status);
     }
 
+    public function test_cancel_rejects_meeting_that_is_not_reserved(): void
+    {
+        // MeetingPolicy::cancel() が status!==reserved を弾くため、通常経路では 403 で止まる。
+        $student = User::factory()->student()->inProgress()->create();
+        $coach = User::factory()->coach()->create();
+        $meeting = Meeting::factory()->completed()->forCoach($coach)->forStudent($student)->create();
+
+        $response = $this->actingAs($student)->post(route('meetings.cancel', $meeting));
+
+        $response->assertForbidden();
+        $this->assertSame(MeetingStatus::Completed, $meeting->fresh()->status);
+    }
+
+    public function test_cancel_rejects_meeting_that_already_started(): void
+    {
+        $student = User::factory()->student()->inProgress()->create();
+        $coach = User::factory()->coach()->create();
+        $meeting = Meeting::factory()->reserved()->forCoach($coach)->forStudent($student)->create([
+            'scheduled_at' => now()->subMinutes(10),
+        ]);
+
+        $response = $this->actingAs($student)->post(route('meetings.cancel', $meeting));
+
+        $response->assertRedirect();
+        $response->assertSessionHas('error');
+        $this->assertSame(MeetingStatus::Reserved, $meeting->fresh()->status);
+    }
+
     public function test_index_as_coach_only_lists_own_meetings(): void
     {
         $coach = User::factory()->coach()->create();
@@ -292,6 +324,90 @@ class MeetingControllerTest extends TestCase
             Meeting::query()->where('status', MeetingStatus::Reserved->value)->count(),
             '同コーチ・同時刻の二重予約は (coach_id, scheduled_at) UNIQUE で阻止されるはず',
         );
+    }
+
+    /**
+     * コードレビュー指摘 5(T-A-02)の回帰テスト。
+     *
+     * `MeetingReserved` イベント発火(→ 通知配信)を予約確定と同一の DB トランザクション境界に
+     * 含めることがこのチケットでの唯一の挙動変更点。境界の外に出すリグレッションを検知できるよう、
+     * イベント発火時点でトランザクションが何段深いかを確認する
+     * (RefreshDatabase のテスト全体を包むラップ用トランザクションの 1 段さらに内側にいるはず)。
+     */
+    public function test_meeting_reserved_event_fires_inside_the_reservation_transaction(): void
+    {
+        $student = User::factory()->student()->inProgress()->create(['max_meetings' => 3]);
+        $admin = User::factory()->admin()->create();
+        $coach = User::factory()->coach()->inProgress()->create([
+            'meeting_url' => 'https://meet.example.com/coach-room',
+        ]);
+        $certification = Certification::factory()->published()->create();
+        $this->attachCoach($certification, $coach, $admin);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '18:00:00')->create();
+        $enrollment = Enrollment::factory()->for($student, 'user')->for($certification)->learning()->create();
+        $scheduledAt = now()->startOfDay()->next(Carbon::MONDAY)->setTime(10, 0);
+
+        $levelBeforeDispatch = DB::transactionLevel();
+        $levelAtDispatch = null;
+        Event::listen(MeetingReserved::class, function () use (&$levelAtDispatch): void {
+            $levelAtDispatch = DB::transactionLevel();
+        });
+
+        $this->actingAs($student)->post(route('meetings.store', $enrollment), [
+            'scheduled_at' => $scheduledAt->format('Y-m-d\TH:i:s'),
+            'topic' => '相談したい',
+        ]);
+
+        $this->assertNotNull($levelAtDispatch, 'MeetingReserved イベントが発火していない');
+        $this->assertSame(
+            $levelBeforeDispatch + 1,
+            $levelAtDispatch,
+            'MeetingReserved イベントは store() 自身の DB::transaction() の内側で発火するはず'
+            .'(テスト全体を包む RefreshDatabase のラップ用トランザクションより 1 段深い)',
+        );
+    }
+
+    /**
+     * コードレビュー指摘 5(T-A-02)の回帰テスト。
+     *
+     * 予約(Meeting::create)が成立した後、同一トランザクション内の後続処理
+     * (面談回数消費 ConsumeQuotaAction)が失敗した場合、予約も通知も一切残らないことを検証する。
+     */
+    public function test_meeting_and_notification_do_not_persist_when_quota_consumption_fails_after_reservation(): void
+    {
+        $student = User::factory()->student()->inProgress()->create(['max_meetings' => 1]);
+        $admin = User::factory()->admin()->create();
+        $coach = User::factory()->coach()->inProgress()->create([
+            'meeting_url' => 'https://meet.example.com/coach-room',
+        ]);
+        $certification = Certification::factory()->published()->create();
+        $this->attachCoach($certification, $coach, $admin);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '18:00:00')->create();
+        $enrollment = Enrollment::factory()->for($student, 'user')->for($certification)->learning()->create();
+        $scheduledAt = now()->startOfDay()->next(Carbon::MONDAY)->setTime(10, 0);
+
+        // store() 冒頭の残数チェック(1 回目、max_meetings=1 なので通過)の後、Meeting::create() 成立の
+        // 直後(ConsumeQuotaAction 呼び出しより前)に横取り消費を差し込み、ConsumeQuotaAction 内部の
+        // 残数チェック(2 回目)だけを枯渇させて後続失敗を再現する。
+        Meeting::created(function (Meeting $meeting) use ($student): void {
+            if ($meeting->student_id === $student->id) {
+                MeetingQuotaTransaction::factory()->for($student, 'user')->consumed($meeting->id)->create();
+            }
+        });
+
+        try {
+            $this->actingAs($student)->post(route('meetings.store', $enrollment), [
+                'scheduled_at' => $scheduledAt->format('Y-m-d\TH:i:s'),
+                'topic' => '相談したい',
+            ]);
+        } finally {
+            Meeting::flushEventListeners();
+        }
+
+        // 後続失敗時は予約(Meeting)・消費履歴(横取り分含む)・通知のいずれも残ってはならない。
+        $this->assertDatabaseCount('meetings', 0);
+        $this->assertDatabaseCount('meeting_quota_transactions', 0);
+        $this->assertDatabaseCount('notifications', 0);
     }
 
     public function test_cancel_refunds_meeting_quota(): void
