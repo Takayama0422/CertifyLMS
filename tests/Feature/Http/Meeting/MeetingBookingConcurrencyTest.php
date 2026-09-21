@@ -83,6 +83,14 @@ class MeetingBookingConcurrencyTest extends TestCase
             CoachAvailability::query()->where('coach_id', $this->coachId)->delete();
         }
 
+        // 別プロセスの予約成立が MeetingReserved イベント経由で通知(notifications)を実発火・commit する
+        // (#25 で通知配信が実装されて以降)。RefreshDatabase の rollBack は別プロセスの commit 済み行には
+        // 効かないため、ここで明示的に削除しないと後続テスト(notifications の件数を検証するテスト)を壊す。
+        $notifiableIds = array_values(array_unique(array_filter([$this->studentAId, $this->studentBId, $this->coachId])));
+        if ($notifiableIds !== []) {
+            DB::table('notifications')->whereIn('notifiable_id', $notifiableIds)->delete();
+        }
+
         // certifications.category_id は restrictOnDelete のため、先に certification を消してから消す。
         if ($this->certificationId !== null) {
             Certification::query()->whereKey($this->certificationId)->delete();
