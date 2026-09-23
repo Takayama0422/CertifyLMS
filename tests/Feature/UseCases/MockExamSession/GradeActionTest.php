@@ -139,6 +139,71 @@ class GradeActionTest extends TestCase
         $this->assertTrue($session->pass);
     }
 
+    /**
+     * 不合格側の境界値: 得点率が合格基準点にわずかに届かない場合は不合格になる(>= が > や丸めで緩んでいないこと)。
+     * 2/3 問正解 = 66.67% は、合格基準 67 にわずかに届かない。
+     */
+    public function test_grades_session_just_below_passing_score_as_fail(): void
+    {
+        $session = $this->gradeSessionWith(passingScore: 67, totalQuestions: 3, correctCount: 2);
+
+        $this->assertSame(2, $session->total_correct);
+        $this->assertEquals(66.67, (float) $session->score_percentage);
+        $this->assertFalse($session->pass);
+    }
+
+    /**
+     * 合否が入れ替わる境界の前後を同じ合格基準(80)で対にして固定する。
+     * 4/5 問正解 = 80.00% は合格、3/5 問正解 = 60.00% は不合格。
+     */
+    public function test_grades_session_pass_and_fail_on_either_side_of_the_boundary(): void
+    {
+        $atBoundary = $this->gradeSessionWith(passingScore: 80, totalQuestions: 5, correctCount: 4);
+        $belowBoundary = $this->gradeSessionWith(passingScore: 80, totalQuestions: 5, correctCount: 3);
+
+        $this->assertEquals(80.00, (float) $atBoundary->score_percentage);
+        $this->assertTrue($atBoundary->pass);
+        $this->assertEquals(60.00, (float) $belowBoundary->score_percentage);
+        $this->assertFalse($belowBoundary->pass);
+    }
+
+    private function gradeSessionWith(int $passingScore, int $totalQuestions, int $correctCount): MockExamSession
+    {
+        $mockExam = MockExam::factory()->published()->passingScore($passingScore)->create();
+        $questions = collect();
+        for ($i = 0; $i < $totalQuestions; $i++) {
+            $questions->push(MockExamQuestion::factory()->forMockExam($mockExam)->withOptions(4, 0)->create(['order' => $i]));
+        }
+
+        $session = MockExamSession::factory()
+            ->forMockExam($mockExam)
+            ->inProgress()
+            ->create([
+                'generated_question_ids' => $questions->pluck('id')->all(),
+                'total_questions' => $totalQuestions,
+                'passing_score_snapshot' => $passingScore,
+            ]);
+
+        foreach ($questions->values() as $index => $question) {
+            $option = $index < $correctCount
+                ? $question->options->firstWhere('is_correct', true)
+                : $question->options->firstWhere('is_correct', false);
+
+            MockExamAnswer::factory()->create([
+                'mock_exam_session_id' => $session->id,
+                'mock_exam_question_id' => $question->id,
+                'selected_option_id' => $option->id,
+                'selected_option_body' => $option->body,
+                'is_correct' => false,
+                'answered_at' => now(),
+            ]);
+        }
+
+        (app(GradeAction::class))($session);
+
+        return $session->refresh();
+    }
+
     public function test_unanswered_questions_count_as_incorrect(): void
     {
         $mockExam = MockExam::factory()->published()->passingScore(50)->create();
