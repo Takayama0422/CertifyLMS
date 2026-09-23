@@ -11,7 +11,10 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Certificate;
 use App\Models\Certification;
+use App\Models\CertificationCoachAssignment;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
+use App\Models\EnrollmentNote;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Collection;
@@ -152,7 +155,69 @@ final class EnrollmentSeeder extends Seeder
                     'changed_reason' => '新規登録',
                 ],
             );
+
+            // 1 件目のみ達成済 / 未達成の個人目標を 2 件追加(S-B-05: 目標 CRUD・達成マーク UI の即時確認用)
+            if ($index === 0) {
+                $this->seedFixedStudentGoals($enrollment);
+            }
+
+            // S-B-07: 実際に割り当てられた担当コーチ + admin が固定 student の Enrollment にメモを残す
+            // (他コーチ越境拒否シナリオ用)。CertificationSeeder の割当順を決め打ちせず、実際の
+            // CertificationCoachAssignment を引いて作成者を決める(割当順が変わっても担当外コーチの
+            // メモが混ざらないようにするため)。
+            $this->seedFixedStudentNotes($enrollment, $index, $admin);
         }
+    }
+
+    /**
+     * 固定 student の各 Enrollment にコーチメモを投入する(実際の担当割当に沿った自然な組み合わせ)。
+     */
+    private function seedFixedStudentNotes(Enrollment $enrollment, int $index, ?User $admin): void
+    {
+        $assignedCoachIds = CertificationCoachAssignment::query()
+            ->where('certification_id', $enrollment->certification_id)
+            ->whereNull('unassigned_at')
+            ->pluck('user_id');
+
+        $authors = User::query()->whereIn('id', $assignedCoachIds)->get()->all();
+
+        // 2 件目(index === 1)相当は admin のメモも重ね、コーチ + 管理者混在の閲覧確認シナリオを維持する。
+        if ($admin !== null && $index === 1) {
+            $authors[] = $admin;
+        }
+
+        foreach ($authors as $author) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $author->id],
+                ['body' => $author->id === $admin?->id
+                    ? '運営として学習状況を確認。特に問題なし。'
+                    : "面談以外の日常観察メモ({$author->name})。\nQ&A での質問頻度が高く、意欲的に取り組んでいる印象です。"],
+            );
+        }
+    }
+
+    /**
+     * 固定 student の 1 件目 Enrollment に達成済 / 未達成の個人目標を 1 件ずつ投入する。
+     */
+    private function seedFixedStudentGoals(Enrollment $enrollment): void
+    {
+        EnrollmentGoal::firstOrCreate(
+            ['enrollment_id' => $enrollment->id, 'title' => '過去問 5 年分を解き終える'],
+            [
+                'description' => "毎週末に 1 年分ずつ解き、間違えた分野は苦手ドリルで復習する。\n直前 1 ヶ月は模試中心に切り替える。",
+                'target_date' => now()->addMonths(2)->toDateString(),
+                'achieved_at' => null,
+            ],
+        );
+
+        EnrollmentGoal::firstOrCreate(
+            ['enrollment_id' => $enrollment->id, 'title' => '教材を一周読み終える'],
+            [
+                'description' => null,
+                'target_date' => now()->subDays(10)->toDateString(),
+                'achieved_at' => now()->subDays(3),
+            ],
+        );
     }
 
     /**
@@ -205,7 +270,57 @@ final class EnrollmentSeeder extends Seeder
             if ($pattern['state'] === 'passed') {
                 $this->issueCertificate($enrollment, $passedAt);
             }
+
+            // demo 受講生にも個人目標を散らす(S-B-05: コーチ / 管理者 / 他受講生からの閲覧認可分岐の確認用)。
+            // 偶数番目=未達成、奇数番目=達成済を混在させる。
+            $this->seedDemoStudentGoal($enrollment, achieved: $i % 2 === 1);
+
+            // S-B-07: 担当 coach が割り当てられている資格 Enrollment にはコーチメモを 1-2 件散らす(coach 動線の即時確認用)。
+            $this->seedDemoStudentNotes($enrollment, $i, $admin);
         }
+    }
+
+    /**
+     * demo 受講生の Enrollment に、当該資格の担当コーチ(存在すれば)によるメモを 1-2 件投入する。
+     * 3 件に 1 件は admin のメモも重ねる(コーチ + 管理者混在の閲覧確認用)。
+     */
+    private function seedDemoStudentNotes(Enrollment $enrollment, int $index, ?User $admin): void
+    {
+        $assignedCoachIds = CertificationCoachAssignment::query()
+            ->where('certification_id', $enrollment->certification_id)
+            ->whereNull('unassigned_at')
+            ->pluck('user_id');
+
+        $assignedCoaches = User::query()->whereIn('id', $assignedCoachIds)->get();
+
+        foreach ($assignedCoaches as $coach) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $coach->id],
+                ['body' => "学習進捗を確認しました({$coach->name})。次回の面談で理解度をすり合わせたいです。"],
+            );
+        }
+
+        if ($admin !== null && $index % 3 === 0) {
+            EnrollmentNote::firstOrCreate(
+                ['enrollment_id' => $enrollment->id, 'user_id' => $admin->id],
+                ['body' => '運営として学習状況を確認。特に問題なし。'],
+            );
+        }
+    }
+
+    /**
+     * demo 受講生の Enrollment に個人目標を 1 件投入する(達成済 / 未達成を交互に混在)。
+     */
+    private function seedDemoStudentGoal(Enrollment $enrollment, bool $achieved): void
+    {
+        EnrollmentGoal::firstOrCreate(
+            ['enrollment_id' => $enrollment->id, 'title' => '模試で合格ラインを超える'],
+            [
+                'description' => '直近の模試スコアを踏まえて弱点分野を重点的に復習する。',
+                'target_date' => $achieved ? now()->subDays(5)->toDateString() : now()->addMonth()->toDateString(),
+                'achieved_at' => $achieved ? now()->subDay() : null,
+            ],
+        );
     }
 
     private function seedStatusLogs(Enrollment $enrollment, string $finalState, User $student): void
