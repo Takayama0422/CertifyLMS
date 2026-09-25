@@ -10,6 +10,7 @@ use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\LearningSession;
 use App\Models\Meeting;
+use App\Models\QaThread;
 use App\Models\User;
 use App\Services\ChatUnreadCountService;
 use App\UseCases\Dashboard\FetchCoachDashboardAction;
@@ -136,6 +137,45 @@ class FetchCoachDashboardActionTest extends TestCase
         $vm = app(FetchCoachDashboardAction::class)($coach);
 
         $this->assertNull($vm->unreadChatCount);
+    }
+
+    /**
+     * レビュー指摘 9: `unansweredQaCount` / `recentQaThreads` が実データ(担当資格 かつ 未解決 かつ
+     * 回答 0 件のスレッドのみ)で正しく集計されることを検証する。安全装置(`HasDashboardSafeFetch::safe`)が
+     * 例外を握り潰すため、壊れても画面上気づけない箇所の回帰テスト。
+     */
+    public function test_unanswered_qa_count_and_threads_are_scoped_to_coach_certifications(): void
+    {
+        $coach = User::factory()->coach()->inProgress()->create();
+        $myCert = Certification::factory()->published()->create();
+        $otherCert = Certification::factory()->published()->create();
+        $this->attachCoach($myCert, $coach);
+
+        $unanswered = QaThread::factory()->for($myCert)->open()->create();
+        QaThread::factory()->for($otherCert)->open()->create();
+
+        $vm = app(FetchCoachDashboardAction::class)($coach);
+
+        $this->assertSame(1, $vm->unansweredQaCount);
+        $this->assertCount(1, $vm->recentQaThreads);
+        $this->assertSame($unanswered->id, $vm->recentQaThreads->first()->id);
+    }
+
+    public function test_unanswered_qa_excludes_answered_and_resolved_threads(): void
+    {
+        $coach = User::factory()->coach()->inProgress()->create();
+        $cert = Certification::factory()->published()->create();
+        $this->attachCoach($cert, $coach);
+
+        $answered = QaThread::factory()->for($cert)->open()->create();
+        $answered->replies()->create(['user_id' => User::factory()->student()->create()->id, 'body' => '回答']);
+        QaThread::factory()->for($cert)->resolved()->create();
+        $unanswered = QaThread::factory()->for($cert)->open()->create();
+
+        $vm = app(FetchCoachDashboardAction::class)($coach);
+
+        $this->assertSame(1, $vm->unansweredQaCount);
+        $this->assertSame($unanswered->id, $vm->recentQaThreads->first()->id);
     }
 
     private function attachCoach(Certification $certification, User $coach): void

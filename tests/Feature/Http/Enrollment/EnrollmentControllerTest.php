@@ -7,6 +7,7 @@ namespace Tests\Feature\Http\Enrollment;
 use App\Enums\EnrollmentStatus;
 use App\Models\Certification;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
 use App\Models\MockExam;
 use App\Models\MockExamSession;
 use App\Models\User;
@@ -35,6 +36,23 @@ class EnrollmentControllerTest extends TestCase
             return $enrollments->pluck('id')->contains($ownEnrollment->id)
                 && ! $enrollments->pluck('id')->contains($otherEnrollment->id);
         });
+    }
+
+    public function test_index_shows_correct_goals_count_per_enrollment(): void
+    {
+        $student = User::factory()->student()->inProgress()->create();
+        $enrollment = Enrollment::factory()->for($student)->for(Certification::factory()->published())->learning()->create();
+        EnrollmentGoal::factory()->forEnrollment($enrollment)->count(3)->create();
+        $otherEnrollment = Enrollment::factory()->for($student)->for(Certification::factory()->published())->learning()->create();
+
+        $response = $this->actingAs($student)->get(route('enrollments.index'));
+
+        $response->assertOk();
+        $response->assertViewHas('enrollments', function ($enrollments) use ($enrollment, $otherEnrollment) {
+            return $enrollments->firstWhere('id', $enrollment->id)->goals_count === 3
+                && $enrollments->firstWhere('id', $otherEnrollment->id)->goals_count === 0;
+        });
+        $response->assertSee('3 件');
     }
 
     public function test_show_allows_owner_student(): void
