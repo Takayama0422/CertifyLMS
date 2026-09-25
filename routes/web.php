@@ -13,6 +13,7 @@ use App\Http\Controllers\ChapterController;
 use App\Http\Controllers\ChatRoomController;
 use App\Http\Controllers\ContentSearchController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DownloadCertificateController;
 use App\Http\Controllers\EnrollmentController;
 use App\Http\Controllers\EnrollmentGoalController;
 use App\Http\Controllers\EnrollmentManagementController;
@@ -84,6 +85,11 @@ Route::middleware('auth')->group(function () {
     Route::get('enrollments/{enrollment}', [EnrollmentController::class, 'show'])
         ->withTrashed()
         ->name('enrollments.show');
+
+    // 修了証ダウンロード(本人 / 担当コーチ / 管理者)。学習中以外(修了 / 退会前)の本人もアクセス可のため
+    // active-learning 制限のある受講生専用ルートグループには置かない。
+    Route::get('certificates/{certificate}/download', [DownloadCertificateController::class, 'show'])
+        ->name('certificates.download');
 });
 
 // ============================================================
