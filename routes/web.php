@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
 use App\Http\Controllers\CertificationCatalogController;
@@ -14,10 +15,13 @@ use App\Http\Controllers\ContentSearchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DownloadCertificateController;
 use App\Http\Controllers\EnrollmentController;
+use App\Http\Controllers\EnrollmentGoalController;
 use App\Http\Controllers\EnrollmentManagementController;
+use App\Http\Controllers\EnrollmentNoteController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
 use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MeetingPackController;
 use App\Http\Controllers\MeetingQuotaHistoryController;
 use App\Http\Controllers\MockExamAnswerController;
 use App\Http\Controllers\MockExamCatalogController;
@@ -25,7 +29,11 @@ use App\Http\Controllers\MockExamController;
 use App\Http\Controllers\MockExamQuestionController;
 use App\Http\Controllers\MockExamSessionController;
 use App\Http\Controllers\MockExamSessionMonitorController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PartController;
+use App\Http\Controllers\QaReplyController;
+use App\Http\Controllers\QaThreadController;
+use App\Http\Controllers\QaThreadModerationController;
 use App\Http\Controllers\QuestionCategoryController;
 use App\Http\Controllers\QuizHistoryController;
 use App\Http\Controllers\QuizStatsController;
@@ -38,6 +46,9 @@ use App\Http\Controllers\SectionQuestionController;
 use App\Http\Controllers\SectionQuizController;
 use App\Http\Controllers\SectionQuizResultController;
 use App\Http\Controllers\Settings\AvailabilityController as SettingsAvailabilityController;
+use App\Http\Controllers\Settings\AvatarController as SettingsAvatarController;
+use App\Http\Controllers\Settings\PasswordController as SettingsPasswordController;
+use App\Http\Controllers\Settings\ProfileController as SettingsProfileController;
 use App\Http\Controllers\Settings\SettingsDefaultEnrollmentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WeakDrillController;
@@ -82,6 +93,16 @@ Route::middleware('auth')->group(function () {
 });
 
 // ============================================================
+// 認証後の全ロール共通ルート — 通知一覧 / 既読化(自分宛のみ、認可は NotificationPolicy)
+// ============================================================
+Route::middleware('auth')->prefix('notifications')->name('notifications.')->group(function () {
+    Route::get('/', [NotificationController::class, 'index'])->name('index');
+    Route::post('read-all', [NotificationController::class, 'markAllAsRead'])->name('markAllAsRead');
+    Route::get('{notification}', [NotificationController::class, 'show'])->name('show');
+    Route::post('{notification}/read', [NotificationController::class, 'markAsRead'])->name('markAsRead');
+});
+
+// ============================================================
 // 受講生専用ルート(受講中ステータスのみ通過、卒業ステータスはロック)
 // ============================================================
 Route::middleware(['auth', 'role:student', 'active-learning'])->group(function () {
@@ -104,7 +125,36 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->group(function (
     // 修了証受領(受講生自己発火、graduated は active-learning でブロックされるため新規受領不可)
     Route::post('enrollments/{enrollment}/receive-certificate', [ReceiveCertificateController::class, 'store'])
         ->name('enrollments.receiveCertificate');
+
+    // 個人学習目標(受講生本人のみ CRUD + 達成マーク / 解除。閲覧は enrollments.show 側で本人/コーチ/admin に開放)
+    Route::post('enrollments/{enrollment}/goals', [EnrollmentGoalController::class, 'store'])
+        ->name('enrollments.goals.store');
+    Route::get('enrollment-goals/{goal}/edit', [EnrollmentGoalController::class, 'edit'])
+        ->name('enrollment-goals.edit');
+    Route::patch('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'update'])
+        ->name('enrollment-goals.update');
+    Route::delete('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'destroy'])
+        ->name('enrollment-goals.destroy');
+    Route::post('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'markAchieved'])
+        ->name('enrollment-goals.markAchieved');
+    Route::delete('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'unmarkAchieved'])
+        ->name('enrollment-goals.unmarkAchieved');
 });
+
+// ============================================================
+// 全ロール共通 設定ルート(プロフィール / アバター / パスワード、本人のみ)
+// 修了済(graduated)受講生も利用できるため role: / active-learning は付与しない
+// ============================================================
+Route::middleware('auth')
+    ->prefix('settings')
+    ->name('settings.')
+    ->group(function () {
+        Route::get('profile', [SettingsProfileController::class, 'edit'])->name('profile.edit');
+        Route::patch('profile', [SettingsProfileController::class, 'update'])->name('profile.update');
+        Route::post('avatar', [SettingsAvatarController::class, 'store'])->name('avatar.store');
+        Route::delete('avatar', [SettingsAvatarController::class, 'destroy'])->name('avatar.destroy');
+        Route::put('password', [SettingsPasswordController::class, 'update'])->name('password.update');
+    });
 
 // ============================================================
 // 受講生専用 設定ルート(デフォルト資格の永続変更)
@@ -198,6 +248,23 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.enrollments.updateExamDate');
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
+
+    // 面談パックマスタ管理(追加面談購入用 SKU の CRUD + 公開状態遷移、admin のみ)
+    Route::resource('meeting-packs', MeetingPackController::class)
+        ->parameters(['meeting-packs' => 'plan'])
+        ->names('admin.meeting-packs');
+    Route::post('meeting-packs/{plan}/publish', [MeetingPackController::class, 'publish'])
+        ->name('admin.meeting-packs.publish');
+    Route::post('meeting-packs/{plan}/archive', [MeetingPackController::class, 'archive'])
+        ->name('admin.meeting-packs.archive');
+    Route::post('meeting-packs/{plan}/unarchive', [MeetingPackController::class, 'unarchive'])
+        ->name('admin.meeting-packs.unarchive');
+
+    // お知らせ配信(S-B-08、既存の通知基盤に乗せて受講生へ配信。再配信 / 編集 / 取消の経路は無い)
+    Route::get('announcements', [AnnouncementController::class, 'index'])->name('admin.announcements.index');
+    Route::get('announcements/create', [AnnouncementController::class, 'create'])->name('admin.announcements.create');
+    Route::post('announcements', [AnnouncementController::class, 'store'])->name('admin.announcements.store');
+    Route::get('announcements/{announcement}', [AnnouncementController::class, 'show'])->name('admin.announcements.show');
 });
 
 // ============================================================
@@ -441,6 +508,44 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
 });
 
 // ============================================================
+// 受講生・コーチ共有 — 質問掲示板(公開エンドポイント)
+// スレッド投稿は受講生のみ / 回答投稿は受講生・コーチ(担当資格のみ)。詳細な可否は Policy に委譲する
+// ============================================================
+Route::middleware(['auth', 'role:student,coach', 'active-learning'])
+    ->prefix('qa-board')
+    ->name('qa-board.')
+    ->group(function () {
+        Route::get('/', [QaThreadController::class, 'index'])->name('index');
+        Route::get('create', [QaThreadController::class, 'create'])->name('create');
+        Route::post('/', [QaThreadController::class, 'store'])->name('store');
+        Route::get('{thread}', [QaThreadController::class, 'show'])->name('show');
+        Route::get('{thread}/edit', [QaThreadController::class, 'edit'])->name('edit');
+        Route::patch('{thread}', [QaThreadController::class, 'update'])->name('update');
+        Route::delete('{thread}', [QaThreadController::class, 'destroy'])->name('destroy');
+        Route::post('{thread}/resolve', [QaThreadController::class, 'resolve'])->name('resolve');
+        Route::post('{thread}/unresolve', [QaThreadController::class, 'unresolve'])->name('unresolve');
+
+        Route::post('{thread}/replies', [QaReplyController::class, 'store'])->name('replies.store');
+        Route::get('{thread}/replies/{reply}/edit', [QaReplyController::class, 'edit'])->name('replies.edit');
+        Route::patch('{thread}/replies/{reply}', [QaReplyController::class, 'update'])->name('replies.update');
+        Route::delete('{thread}/replies/{reply}', [QaReplyController::class, 'destroy'])->name('replies.destroy');
+    });
+
+// ============================================================
+// 管理者専用 — 質問掲示板モデレーション(公開停止中の資格を含む全件を横断閲覧、削除のみ可)
+// ============================================================
+Route::middleware(['auth', 'role:admin'])
+    ->prefix('admin/qa-board')
+    ->name('admin.qa-board.')
+    ->group(function () {
+        Route::get('/', [QaThreadModerationController::class, 'index'])->name('index');
+        Route::get('{thread}', [QaThreadModerationController::class, 'show'])->name('show');
+        Route::delete('{thread}', [QaThreadModerationController::class, 'destroy'])->name('destroy');
+        Route::delete('{thread}/replies/{reply}', [QaThreadModerationController::class, 'destroyReply'])
+            ->name('replies.destroy');
+    });
+
+// ============================================================
 // コーチ専用ルート — 担当資格受講生管理 / 面談管理 / メモ記録
 // ============================================================
 Route::middleware(['auth', 'role:coach'])->prefix('coach')->name('coach.')->group(function () {
@@ -449,6 +554,20 @@ Route::middleware(['auth', 'role:coach'])->prefix('coach')->name('coach.')->grou
     // 面談管理
     Route::get('meetings', [MeetingController::class, 'indexAsCoach'])->name('meetings.index');
     Route::put('meetings/{meeting}/memo', [MeetingController::class, 'upsertMemo'])->name('meetings.memo');
+});
+
+// ============================================================
+// コーチ / 管理者共有ルート — 受講生メモ(担当資格のみ。管理者は越境可。受講生は到達不可)
+// ============================================================
+Route::middleware(['auth', 'role:coach,admin'])->group(function () {
+    Route::post('enrollments/{enrollment}/notes', [EnrollmentNoteController::class, 'store'])
+        ->name('enrollments.notes.store');
+    Route::get('enrollment-notes/{note}/edit', [EnrollmentNoteController::class, 'edit'])
+        ->name('enrollment-notes.edit');
+    Route::patch('enrollment-notes/{note}', [EnrollmentNoteController::class, 'update'])
+        ->name('enrollment-notes.update');
+    Route::delete('enrollment-notes/{note}', [EnrollmentNoteController::class, 'destroy'])
+        ->name('enrollment-notes.destroy');
 });
 
 // ============================================================

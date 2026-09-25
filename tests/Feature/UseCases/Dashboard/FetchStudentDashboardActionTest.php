@@ -10,6 +10,7 @@ use App\Models\Certificate;
 use App\Models\Certification;
 use App\Models\Chapter;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
 use App\Models\LearningSession;
 use App\Models\MeetingPack;
 use App\Models\Part;
@@ -244,6 +245,51 @@ class FetchStudentDashboardActionTest extends TestCase
         $this->assertInstanceOf(ResumeCard::class, $vm->resume);
         $this->assertSame($s2->title, $vm->resume->sectionTitle, '最後の Section が読了済なら次の未読へ進むはず');
         $this->assertStringContainsString($s2->id, $vm->resume->sectionUrl);
+    }
+
+    public function test_goal_timeline_orders_unachieved_before_achieved_by_target_date(): void
+    {
+        // Arrange: 達成済 1 件 + 未達成 2 件(期日が近い順に並ぶはず)
+        $student = $this->makeStudentWithPlan();
+        $cert = Certification::factory()->published()->create();
+        $enrollment = Enrollment::factory()->for($student)->for($cert)->learning()->create();
+        $achieved = EnrollmentGoal::factory()->forEnrollment($enrollment)->achieved()->create([
+            'target_date' => now()->subDays(5)->toDateString(),
+        ]);
+        $unachievedLater = EnrollmentGoal::factory()->forEnrollment($enrollment)->create([
+            'target_date' => now()->addMonths(2)->toDateString(),
+        ]);
+        $unachievedSooner = EnrollmentGoal::factory()->forEnrollment($enrollment)->create([
+            'target_date' => now()->addDays(3)->toDateString(),
+        ]);
+
+        // Act
+        $vm = app(FetchStudentDashboardAction::class)($student);
+
+        // Assert: 個人目標タイムラインが取得失敗(null)せず、未達成(期日昇順)→ 達成済の順に並ぶ
+        $this->assertNotNull($vm->goalTimeline, '個人目標タイムラインの取得に失敗しているはず(displayOrder 未実装などで例外が握り潰されていないか)');
+        $this->assertSame(
+            [$unachievedSooner->id, $unachievedLater->id, $achieved->id],
+            $vm->goalTimeline->pluck('id')->all(),
+        );
+    }
+
+    public function test_goal_timeline_only_includes_goals_of_the_student(): void
+    {
+        // Arrange: 本人の目標 1 件 + 他受講生の目標 1 件
+        $student = $this->makeStudentWithPlan();
+        $other = $this->makeStudentWithPlan();
+        $cert = Certification::factory()->published()->create();
+        $enrollment = Enrollment::factory()->for($student)->for($cert)->learning()->create();
+        $otherEnrollment = Enrollment::factory()->for($other)->for($cert)->learning()->create();
+        $mine = EnrollmentGoal::factory()->forEnrollment($enrollment)->create();
+        EnrollmentGoal::factory()->forEnrollment($otherEnrollment)->create();
+
+        // Act
+        $vm = app(FetchStudentDashboardAction::class)($student);
+
+        // Assert
+        $this->assertSame([$mine->id], $vm->goalTimeline->pluck('id')->all());
     }
 
     /**

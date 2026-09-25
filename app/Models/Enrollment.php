@@ -128,6 +128,17 @@ class Enrollment extends Model
     }
 
     /**
+     * コーチメモ(コーチ / 管理者が記録する業務記録、受講生には非公開)。
+     * 時系列表示は一覧側(`enrollment-note._list`)が明示的に order するため、ここではデフォルト順のみ。
+     *
+     * @return HasMany<EnrollmentNote, $this>
+     */
+    public function notes(): HasMany
+    {
+        return $this->hasMany(EnrollmentNote::class);
+    }
+
+    /**
      * @return HasMany<LearningSession, $this>
      */
     public function learningSessions(): HasMany
@@ -141,6 +152,24 @@ class Enrollment extends Model
     public function learningHourTarget(): HasOne
     {
         return $this->hasOne(LearningHourTarget::class);
+    }
+
+    /**
+     * 個人学習目標(受講生本人 CRUD)。未達成(target_date 昇順)→ 達成済の順で並べ、
+     * 一覧が「達成状況で分かりやすい順序」になるようにする。
+     *
+     * `with('enrollment')` で各 EnrollmentGoal に逆リレーションを事前ロードしておくことで、
+     * 一覧画面が目標ごとに評価する認可判定(`$goal->enrollment->…` を参照する Policy)が
+     * 目標 1 件につき 1 クエリ発行する N+1 を防ぐ(全件同一 Enrollment のため追加は 1 クエリのみ)。
+     *
+     * @return HasMany<EnrollmentGoal, $this>
+     */
+    public function goals(): HasMany
+    {
+        return $this->hasMany(EnrollmentGoal::class)
+            ->with('enrollment')
+            ->orderByRaw('achieved_at IS NOT NULL')
+            ->orderBy('target_date');
     }
 
     public function scopeLearning(Builder $query): Builder
@@ -170,7 +199,7 @@ class Enrollment extends Model
     {
         return match ($user->role) {
             UserRole::Admin => $query,
-            UserRole::Coach => $query,
+            UserRole::Coach => $query->whereIn('certification_id', $user->coachingCertificationIds()),
             UserRole::Student => $query->where('user_id', $user->id),
             default => $query->whereRaw('1 = 0'),
         };
