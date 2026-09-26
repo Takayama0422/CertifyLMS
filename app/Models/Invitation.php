@@ -72,4 +72,12 @@ class Invitation extends Model
             && $this->expires_at instanceof \DateTimeInterface
             && $this->expires_at->getTimestamp() > now()->getTimestamp();
     }
+
+    /**
+     * オンボーディングが完了済み(= 招待 URL が使用済み)かどうかを判定する。
+     */
+    public function isUsed(): bool
+    {
+        return $this->status === InvitationStatus::Accepted;
+    }
 }
