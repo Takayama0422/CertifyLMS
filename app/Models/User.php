@@ -279,6 +279,17 @@ class User extends Authenticatable
     }
 
     /**
+     * 自身が所有する AI 相談(Gemini AI チャットボット, S-A-02)の会話一覧。
+     * 他の受講生の会話は含まれない(オーナー本人のみ操作可能)。
+     *
+     * @return HasMany<AiChatConversation, $this>
+     */
+    public function aiChatConversations(): HasMany
+    {
+        return $this->hasMany(AiChatConversation::class);
+    }
+
+    /**
      * 自身が投稿した質問掲示板スレッド。
      *
      * @return HasMany<QaThread, $this>

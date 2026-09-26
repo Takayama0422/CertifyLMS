@@ -7,6 +7,7 @@ namespace App\Http;
 use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EncryptCookies;
 use App\Http\Middleware\EnsureActiveLearning;
+use App\Http\Middleware\EnsureAiChatEnabled;
 use App\Http\Middleware\EnsureUserRole;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\PreventRequestsDuringMaintenance;
@@ -89,6 +90,7 @@ class Kernel extends HttpKernel
      */
     protected $middlewareAliases = [
         'active-learning' => EnsureActiveLearning::class,
+        'ai-chat-enabled' => EnsureAiChatEnabled::class,
         'auth' => Authenticate::class,
         'auth.basic' => AuthenticateWithBasicAuth::class,
         'auth.session' => AuthenticateSession::class,
