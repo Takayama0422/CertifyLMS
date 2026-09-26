@@ -141,5 +141,15 @@ sail bin pint --test     # 整形漏れの確認（CI 相当のチェック）
 `.env.example` をコピーするだけで、すべての機能がローカルで動作します（メールは Mailpit に配信されます）。
 
 - `PUSHER_*` — チャットのリアルタイム配信に使用します。有効にする場合は Pusher のキーを取得して設定し、`BROADCAST_DRIVER=pusher` に変更してください。未設定（既定の `BROADCAST_DRIVER=log`）でもメッセージの送受信自体は動作し、相手画面へのリアルタイム反映のみ行われません
+- `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` — コーチの Google カレンダー連携（設定画面の面談設定タブ）に使用します。未設定でもアプリは正常に起動し、面談の予約 / キャンセル / 空き枠表示など既存機能はすべて従来通り動作します（連携ボタンを押した際に Google 側の認可画面へ遷移できないだけです）。取得手順は以下の通りです。
+  1. [Google Cloud Console](https://console.cloud.google.com/) でプロジェクトを作成（または既存プロジェクトを選択）する
+  2. 「API とサービス」→「ライブラリ」から **Google Calendar API** を有効化する
+  3. 「API とサービス」→「OAuth 同意画面」を設定する（テスト目的であれば「External」+ テストユーザー登録で可）
+  4. 「API とサービス」→「認証情報」→「認証情報を作成」→「OAuth クライアント ID」を選択し、アプリケーションの種類は「ウェブ アプリケーション」を選ぶ
+  5. 「承認済みのリダイレクト URI」に `{APP_URL}/settings/google-calendar/callback`（ローカルなら `http://localhost:8000/settings/google-calendar/callback`）を登録する
+  6. 発行されたクライアント ID / クライアントシークレットをそれぞれ `GOOGLE_CALENDAR_CLIENT_ID` / `GOOGLE_CALENDAR_CLIENT_SECRET` に設定する
+- `GOOGLE_CALENDAR_CONNECT_TIMEOUT` / `GOOGLE_CALENDAR_TIMEOUT` — Google Calendar API への接続 / 応答タイムアウト（秒、小数可）。未設定時は既定値の 5 秒 / 10 秒。Google 側が無応答のままだと空き枠表示・予約・キャンセルがこの秒数まで待たされてからフォールバックするため、環境に応じて調整してください。
+
+  > **本番運用時の注意**: 現状、Google の OAuth トークン（`google_calendar_credentials` テーブルの `access_token` / `refresh_token`）は平文で保存しています（本チケットのスコープ外）。本番運用する場合は、Laravel の暗号化キャスト（[`encrypted` cast](https://laravel.com/docs/10.x/eloquent-mutators#encrypted-casting)）等を用いた暗号化保存を別途検討してください。また、連携解除（設定画面の「連携を解除する」ボタン）は LMS 側のレコードを削除するのみで、発行済みのトークンを Google 側で失効させる処理は行っていません（本チケットのスコープ外）。Google 側での失効も必要な場合は、解除時に [OAuth 2.0 のトークン取り消しエンドポイント](https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke)を呼び出す実装を別途検討してください。
 
 新しい環境変数やセットアップ手順を追加した場合は、`.env.example` と本 README に追記し、チームの誰でも環境を再現できる状態を保ってください。
