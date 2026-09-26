@@ -36,6 +36,17 @@ class NotificationController extends Controller
         ]);
     }
 
+    /**
+     * 通知詳細ページ(遷移先を持たない自己完結型の通知、主に運営お知らせの全文閲覧用)。
+     * 閲覧専用(JS なし)で、既読化は行わない(既読化は一覧行のクリック / まとめて既読のみが担う)。
+     */
+    public function show(DatabaseNotification $notification): View
+    {
+        $this->authorize('view', $notification);
+
+        return view('notifications.show', ['notification' => $notification]);
+    }
+
     public function markAsRead(DatabaseNotification $notification, MarkAsReadAction $action): RedirectResponse
     {
         $this->authorize('update', $notification);
