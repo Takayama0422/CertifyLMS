@@ -8,6 +8,8 @@ use App\Events\CertificationCoachAttached;
 use App\Events\CertificationCoachDetached;
 use App\Events\MeetingCanceled;
 use App\Events\MeetingReserved;
+use App\Listeners\DeleteGoogleCalendarEvent;
+use App\Listeners\RegisterGoogleCalendarEvent;
 use App\Listeners\SendMeetingPartyNotifications;
 use App\Listeners\SyncChatMembersOnCoachAssignmentChanged;
 use App\Listeners\UpdateLastLoginAt;
@@ -39,9 +41,11 @@ class EventServiceProvider extends ServiceProvider
         ],
         MeetingReserved::class => [
             SendMeetingPartyNotifications::class,
+            RegisterGoogleCalendarEvent::class,
         ],
         MeetingCanceled::class => [
             SendMeetingPartyNotifications::class,
+            DeleteGoogleCalendarEvent::class,
         ],
     ];
 

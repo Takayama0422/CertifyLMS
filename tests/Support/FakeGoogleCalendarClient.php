@@ -9,6 +9,7 @@ use App\Services\GoogleCalendar\DataTransfer\GoogleCalendarEvent;
 use App\Services\GoogleCalendar\DataTransfer\GoogleOAuthToken;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\DB;
 use Throwable;
 
 /**
@@ -63,6 +64,14 @@ final class FakeGoogleCalendarClient implements GoogleCalendarClient
     /** @var array<int, array{refreshToken: string}> */
     public array $refreshCalls = [];
 
+    /**
+     * 各通信の呼び出し時点の DB トランザクション段数(`DB::transactionLevel()`)の記録。
+     * 「Google 通信は予約 / キャンセル確定の DB トランザクションの外で行う」ことを検証するために使う。
+     *
+     * @var array{busy: array<int, int>, create: array<int, int>, delete: array<int, int>}
+     */
+    public array $transactionLevels = ['busy' => [], 'create' => [], 'delete' => []];
+
     public function authorizationUrl(string $state, string $redirectUri): string
     {
         $this->authorizationUrlCalls[] = ['state' => $state, 'redirectUri' => $redirectUri];
@@ -100,6 +109,8 @@ final class FakeGoogleCalendarClient implements GoogleCalendarClient
 
     public function listBusyIntervals(string $accessToken, string $calendarId, CarbonInterface $from, CarbonInterface $to): array
     {
+        $this->transactionLevels['busy'][] = DB::transactionLevel();
+
         if ($this->delayMicroseconds > 0) {
             usleep($this->delayMicroseconds);
         }
@@ -113,6 +124,8 @@ final class FakeGoogleCalendarClient implements GoogleCalendarClient
 
     public function createEvent(string $accessToken, string $calendarId, GoogleCalendarEvent $event): string
     {
+        $this->transactionLevels['create'][] = DB::transactionLevel();
+
         if ($this->createEventException !== null) {
             throw $this->createEventException;
         }
@@ -124,6 +137,8 @@ final class FakeGoogleCalendarClient implements GoogleCalendarClient
 
     public function deleteEvent(string $accessToken, string $calendarId, string $eventId): void
     {
+        $this->transactionLevels['delete'][] = DB::transactionLevel();
+
         if ($this->deleteEventException !== null) {
             throw $this->deleteEventException;
         }

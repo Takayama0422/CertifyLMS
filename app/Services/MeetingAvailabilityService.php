@@ -112,6 +112,28 @@ final class MeetingAvailabilityService
     }
 
     /**
+     * 指定時刻(1 時間枠)に Google カレンダー側の予定と重なる、担当コーチの ID を返す(S-A-01)。
+     * 未連携のコーチ / Google 通信に失敗したコーチは含まれない(従来どおりの空き判定にフォールバック)。
+     *
+     * Google 通信を伴うため、予約確定の DB トランザクションに入る前に呼ぶこと
+     * (トランザクション内に置くと通信が終わるまでロックを保持し、トークン更新の保存も予約失敗で巻き戻る)。
+     *
+     * @return array<int, string>
+     */
+    public function googleBusyCoachIds(Certification $certification, Carbon $scheduledAt): array
+    {
+        $slotEnd = $scheduledAt->copy()->addHour();
+
+        return $certification->coaches()
+            ->with('googleCredential')
+            ->get()
+            ->filter(fn (User $coach): bool => $this->googleCalendar->hasConflict($coach, $scheduledAt, $slotEnd))
+            ->pluck('id')
+            ->values()
+            ->all();
+    }
+
+    /**
      * 指定 scheduled_at が certification 担当コーチ集合の有効枠内かを検証する。
      * 枠外なら MeetingOutOfAvailabilityException を throw する。
      *
