@@ -18,6 +18,7 @@ use App\Services\CompletionEligibilityService;
 use App\Services\Contracts\WeaknessAnalysisServiceContract;
 use App\Services\LearningCalendarService;
 use App\Services\LearningHourTargetService;
+use App\Services\LearningProgressService;
 use App\Services\MeetingQuotaService;
 use App\Services\PlanExpirationService;
 use App\Services\StreakService;
@@ -53,6 +54,7 @@ final class FetchStudentDashboardAction
         private readonly CompletionEligibilityService $completion,
         private readonly MeetingQuotaService $meetingQuota,
         private readonly PlanExpirationService $planExpiration,
+        private readonly LearningProgressService $progress,
     ) {}
 
     public function __invoke(User $student): StudentDashboardViewModel
@@ -99,59 +101,11 @@ final class FetchStudentDashboardAction
      */
     private function buildEnrollmentCards($learningEnrollments): Collection
     {
-        $progressMap = $this->safe(fn () => $this->batchCalculateProgress($learningEnrollments)) ?? [];
+        $progressMap = $this->safe(fn () => $this->progress->batchSectionCompletionRatios($learningEnrollments)) ?? [];
 
         return $learningEnrollments
             ->map(fn (Enrollment $enrollment) => $this->buildCard($enrollment, $progressMap[$enrollment->id] ?? null))
             ->values();
-    }
-
-    /**
-     * 受講中の各 Enrollment の Section 単位完了率を 1 クエリでまとめて算出する (N+1 回避)。
-     * 戻り値のキーは Enrollment.id、値は Section 単位の完了率(0.0〜1.0、未集計時 0.0)。
-     *
-     * @param \Illuminate\Database\Eloquent\Collection<int, Enrollment> $enrollments
-     *
-     * @return array<string, float>
-     */
-    private function batchCalculateProgress($enrollments): array
-    {
-        if ($enrollments->isEmpty()) {
-            return [];
-        }
-
-        $enrollmentIds = $enrollments->pluck('id')->all();
-        $certificationIds = $enrollments->pluck('certification_id')->unique()->values()->all();
-
-        $rows = DB::table('sections')
-            ->join('chapters', 'chapters.id', '=', 'sections.chapter_id')
-            ->join('parts', 'parts.id', '=', 'chapters.part_id')
-            ->join('enrollments', 'enrollments.certification_id', '=', 'parts.certification_id')
-            ->leftJoin('section_progresses', function ($join): void {
-                $join->on('section_progresses.section_id', '=', 'sections.id')
-                    ->on('section_progresses.enrollment_id', '=', 'enrollments.id');
-            })
-            ->whereIn('enrollments.id', $enrollmentIds)
-            ->whereIn('parts.certification_id', $certificationIds)
-            ->where('parts.status', ContentStatus::Published->value)
-            ->where('chapters.status', ContentStatus::Published->value)
-            ->where('sections.status', ContentStatus::Published->value)
-            ->groupBy('enrollments.id')
-            ->selectRaw('enrollments.id AS enrollment_id, COUNT(sections.id) AS total, COUNT(section_progresses.id) AS done')
-            ->get();
-
-        $result = [];
-        foreach ($enrollmentIds as $id) {
-            $result[$id] = 0.0;
-        }
-
-        foreach ($rows as $row) {
-            $total = (int) $row->total;
-            $done = (int) $row->done;
-            $result[(string) $row->enrollment_id] = $total === 0 ? 0.0 : round($done / $total, 4);
-        }
-
-        return $result;
     }
 
     private function buildCard(Enrollment $enrollment, ?float $progressRatio): StudentEnrollmentCard
