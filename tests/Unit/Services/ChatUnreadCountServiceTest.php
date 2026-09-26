@@ -78,6 +78,30 @@ class ChatUnreadCountServiceTest extends TestCase
         $this->assertSame(1, $count);
     }
 
+    public function test_room_count_for_user_excludes_room_with_only_own_message_after_last_read(): void
+    {
+        // 再現手順: 自分が最後に発言したまま、そのルームをまだ開き直していない
+        // (last_read_at より後に残っているのは自分のメッセージのみ、相手からの新着は無し)
+        $student = User::factory()->student()->inProgress()->create();
+
+        $enrollment = Enrollment::factory()->for($student)->create();
+        $room = ChatRoom::factory()->for($enrollment)->create();
+        ChatMember::factory()->create([
+            'chat_room_id' => $room->id,
+            'user_id' => $student->id,
+            'last_read_at' => now()->subMinutes(10),
+        ]);
+        ChatMessage::factory()->create([
+            'chat_room_id' => $room->id,
+            'sender_user_id' => $student->id,
+            'created_at' => now(),
+        ]);
+
+        $count = app(ChatUnreadCountService::class)->roomCountForUser($student);
+
+        $this->assertSame(0, $count, '相手からの新着が無いルームは未読 0 として扱われるはず(自分の発言は未読に含めない)');
+    }
+
     public function test_message_counts_by_room_returns_keyed_array_with_own_and_pre_read_excluded(): void
     {
         $student = User::factory()->student()->inProgress()->create();
