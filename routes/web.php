@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AiChatController;
+use App\Http\Controllers\AiChatConversationController;
+use App\Http\Controllers\AiChatMessageController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
@@ -584,6 +587,31 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->prefix('meeting-
     // 面談回数履歴
     Route::get('history', [MeetingQuotaHistoryController::class, 'index'])->name('history');
 });
+
+// ============================================================
+// 受講生専用ルート — AI 相談(Gemini AI チャットボット, S-A-02)
+// 学習中(in_progress)の受講生のみ。会話の操作(閲覧 / 更新 / 削除 / メッセージ送信)は
+// 会話オーナー本人のみ(認可は AiChatConversationPolicy)。`ai-chat-enabled` 機能スイッチ OFF で
+// 画面・経路ごと 404 になる。
+// ============================================================
+Route::middleware(['auth', 'role:student', 'active-learning', 'ai-chat-enabled'])
+    ->prefix('ai-chat')
+    ->name('ai-chat.')
+    ->group(function () {
+        Route::get('/', [AiChatController::class, 'index'])->name('index');
+
+        Route::post('conversations', [AiChatConversationController::class, 'store'])
+            ->name('conversations.store');
+        Route::get('conversations/{conversation}', [AiChatConversationController::class, 'show'])
+            ->name('conversations.show');
+        Route::patch('conversations/{conversation}', [AiChatConversationController::class, 'update'])
+            ->name('conversations.update');
+        Route::delete('conversations/{conversation}', [AiChatConversationController::class, 'destroy'])
+            ->name('conversations.destroy');
+
+        Route::post('conversations/{conversation}/messages', [AiChatMessageController::class, 'store'])
+            ->name('conversations.messages.store');
+    });
 
 // ============================================================
 // 開発専用: 共通コンポーネントショーケース(APP_ENV=local のみ表示)
