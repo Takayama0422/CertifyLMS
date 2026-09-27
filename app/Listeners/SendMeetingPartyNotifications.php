@@ -21,8 +21,9 @@ use App\Services\NotificationRecipientService;
  * 本リスナー自体は `ShouldQueue` を実装せずイベント発火と同一プロセス内で同期実行するが、
  * `$recipient->notify()` が呼ぶ `BusinessEventNotification` 系は T-A-05 で `ShouldQueueAfterCommit`
  * を実装したため、実際の配信(database 書き込み + mail 送信)はバックグラウンドのキューへ委譲される。
- * イベント発火自体は Controller 側で `DB::transaction()` の外(commit 後)に行われるため、
- * ここでの `notify()` 呼び出し時点でトランザクションは既に終わっており、即座にキューへ積まれる。
+ * 予約・キャンセルのイベントは `MeetingController` が `DB::transaction()` の内側で発火するため、
+ * ここでの `notify()` 呼び出し時点ではトランザクション中だが、`ShouldQueueAfterCommit` により
+ * キューへ積まれるのは commit 後になる(予約・キャンセルが巻き戻った場合に配信が漏れない)。
  */
 final class SendMeetingPartyNotifications
 {

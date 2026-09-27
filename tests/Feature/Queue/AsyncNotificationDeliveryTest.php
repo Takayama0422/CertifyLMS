@@ -6,17 +6,25 @@ namespace Tests\Feature\Queue;
 
 use App\Enums\AnnouncementTargetType;
 use App\Enums\MeetingReminderWindow;
+use App\Events\MeetingReserved;
+use App\Listeners\SendMeetingPartyNotifications;
 use App\Mail\InvitationMail;
+use App\Models\Certification;
+use App\Models\CoachAvailability;
+use App\Models\Enrollment;
 use App\Models\Invitation;
 use App\Models\Meeting;
 use App\Models\User;
 use App\Notifications\MeetingReservedNotification;
 use App\UseCases\Announcement\DispatchAnnouncementAction;
 use App\UseCases\Notification\SendMeetingRemindersAction;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 use RuntimeException;
 use Symfony\Component\Mailer\Exception\TransportException;
 use Symfony\Component\Mailer\SentMessage;
@@ -155,6 +163,58 @@ class AsyncNotificationDeliveryTest extends TestCase
 
         // worker 未処理のためまだ配信されていない。
         // 同期送信のままなら commit 済みの database 通知が 1 件残り、この検証で落ちる
+        $this->assertDatabaseCount('notifications', 0);
+    }
+
+    /**
+     * 実際の予約経路(`MeetingController::store()`)は `MeetingReserved` を DB トランザクションの内側で
+     * 発火するため、通知がキューへ積まれるのは commit 後でなければならない(巻き戻った予約の通知が
+     * 配信されない)。トランザクションを直接ラップして検証する上のテストとは別に、実際の経路で固定する。
+     */
+    public function test_booking_notification_is_queued_only_when_the_reservation_commits(): void
+    {
+        $this->useDatabaseQueue();
+        $student = User::factory()->student()->inProgress()->create(['max_meetings' => 3]);
+        $admin = User::factory()->admin()->create();
+        $coach = User::factory()->coach()->inProgress()->create(['meeting_url' => 'https://meet.example.com/coach-room']);
+        $certification = Certification::factory()->published()->create();
+        $certification->coaches()->attach($coach->id, [
+            'id' => (string) Str::ulid(),
+            'assigned_by_user_id' => $admin->id,
+            'assigned_at' => now(),
+            'unassigned_at' => null,
+        ]);
+        CoachAvailability::factory()->forCoach($coach)->onDay(1)->timeRange('09:00:00', '18:00:00')->create();
+        $enrollment = Enrollment::factory()->for($student, 'user')->for($certification)->learning()->create();
+        $scheduledAt = now()->startOfDay()->next(Carbon::MONDAY)->setTime(10, 0);
+        $payload = ['scheduled_at' => $scheduledAt->format('Y-m-d\TH:i:s'), 'topic' => '相談したい'];
+
+        // 1) イベント発火の後で失敗して予約が巻き戻る場合: 通知はキューへ積まれない
+        $failAfterEvent = function (): void {
+            throw new RuntimeException('イベント発火後の失敗(予約を巻き戻す)');
+        };
+        Event::listen(MeetingReserved::class, $failAfterEvent);
+
+        $this->actingAs($student)->post(route('meetings.store', $enrollment), $payload);
+
+        $this->assertDatabaseCount('meetings', 0);
+        $this->assertDatabaseCount('jobs', 0);
+
+        // 2) 成功して commit された場合: コーチ宛の通知が database / mail の 2 件積まれる(未配信)
+        Event::forget(MeetingReserved::class);
+        Event::listen(MeetingReserved::class, SendMeetingPartyNotifications::class);
+        // 通知リスナーの後(= 同じトランザクション内)で、その時点のキュー件数を記録する。
+        // DB キューは同一接続のため巻き戻りだけでは「commit 前に積んだ」ことが見えないので、発火時点で確認する。
+        $queuedInsideTransaction = null;
+        Event::listen(MeetingReserved::class, function () use (&$queuedInsideTransaction): void {
+            $queuedInsideTransaction = DB::table('jobs')->count();
+        });
+
+        $this->actingAs($student)->post(route('meetings.store', $enrollment), $payload);
+
+        $this->assertSame(0, $queuedInsideTransaction, 'トランザクション中(commit 前)にキューへ積まれてはならない');
+        $this->assertDatabaseCount('meetings', 1);
+        $this->assertDatabaseCount('jobs', 2);
         $this->assertDatabaseCount('notifications', 0);
     }
 
