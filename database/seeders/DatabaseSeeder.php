@@ -30,6 +30,10 @@ class DatabaseSeeder extends Seeder
             QuizAnsweringSeeder::class,
             MockExamSeeder::class,
             ChatSeeder::class,
+            AiChatSeeder::class,
+            QaBoardSeeder::class,
+            NotificationSeeder::class,
+            AnnouncementSeeder::class,
             CertificateSeeder::class,
         ]);
     }

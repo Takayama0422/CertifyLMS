@@ -279,6 +279,37 @@ class User extends Authenticatable
     }
 
     /**
+     * 自身が所有する AI 相談(Gemini AI チャットボット, S-A-02)の会話一覧。
+     * 他の受講生の会話は含まれない(オーナー本人のみ操作可能)。
+     *
+     * @return HasMany<AiChatConversation, $this>
+     */
+    public function aiChatConversations(): HasMany
+    {
+        return $this->hasMany(AiChatConversation::class);
+    }
+
+    /**
+     * 自身が投稿した質問掲示板スレッド。
+     *
+     * @return HasMany<QaThread, $this>
+     */
+    public function qaThreads(): HasMany
+    {
+        return $this->hasMany(QaThread::class);
+    }
+
+    /**
+     * 自身が投稿した質問掲示板の回答。
+     *
+     * @return HasMany<QaReply, $this>
+     */
+    public function qaReplies(): HasMany
+    {
+        return $this->hasMany(QaReply::class);
+    }
+
+    /**
      * Laravel フレームワーク側のシグナル(`Illuminate\Foundation\Auth\User::sendPasswordResetNotification($token)`)
      * との LSP 整合のため、引数に型宣言を付与しない(親クラスが parameter type なしで宣言しているため)。
      *

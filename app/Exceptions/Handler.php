@@ -47,6 +47,7 @@ class Handler extends ExceptionHandler
         409,  // ConflictHttpException(状態遷移違反 / 削除不可 / 残数不足等)
         422,  // UnprocessableEntityHttpException(ドメイン規則による拒否、FormRequest バリデーションは ValidationException 経路で別途処理)
         503,  // ServiceUnavailableHttpException(決済サービスの鍵未設定 / 通信エラー等、一時的に機能が使えない場合)
+        429,  // TooManyRequestsHttpException(AiChatDailyLimitExceededException 等の上限超過)
     ];
 
     /**
