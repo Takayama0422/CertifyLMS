@@ -69,6 +69,9 @@ final class OnboardAction
                 'password' => Hash::make($validated['password']),
                 'profile_setup_completed' => true,
                 'email_verified_at' => $now,
+                // status を更新しないと invited のまま残り、ログアウト後の再ログインが
+                // AuthenticateUserUsing の許可ステータス判定(in_progress / graduated のみ)で弾かれてしまう。
+                'status' => UserStatus::InProgress,
             ];
 
             // 受講生のみ Plan 期間を確定。コーチは受講期間という業務概念を持たない。
@@ -90,6 +93,12 @@ final class OnboardAction
             );
 
             $user->forceFill($attrs)->save();
+
+            // 招待を使用済みにする。これを怠ると同一 URL から何度でもオンボーディングをやり直せてしまう。
+            $invitation->forceFill([
+                'status' => InvitationStatus::Accepted,
+                'accepted_at' => $now,
+            ])->save();
 
             // 面談クォータは受講生固有の消費対象。コーチは面談を提供する側のため初期付与しない。
             if ($user->role === UserRole::Student && $user->plan->default_meeting_quota > 0) {

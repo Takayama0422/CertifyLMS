@@ -79,7 +79,8 @@ final class IndexAction
         if ($keyword !== '') {
             $query->where(function (Builder $q) use ($keyword) {
                 $q->where('title', 'LIKE', '%'.$keyword.'%')
-                    ->orWhere('body', 'LIKE', '%'.$keyword.'%');
+                    ->orWhere('body', 'LIKE', '%'.$keyword.'%')
+                    ->orWhereHas('replies', fn (Builder $r) => $r->where('body', 'LIKE', '%'.$keyword.'%'));
             });
         }
 

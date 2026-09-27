@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Enums\MockExamSessionStatus;
 use App\Enums\TermType;
 use App\Models\Enrollment;
 use App\Models\MockExamSession;
@@ -26,7 +27,11 @@ final class TermJudgementService
     {
         $hasActiveMock = MockExamSession::query()
             ->where('enrollment_id', $enrollment->id)
-            ->whereIn('status', ['in_progress', 'submitted', 'graded', 'canceled'])
+            ->whereIn('status', [
+                MockExamSessionStatus::InProgress->value,
+                MockExamSessionStatus::Submitted->value,
+                MockExamSessionStatus::Graded->value,
+            ])
             ->exists();
 
         $newTerm = $hasActiveMock ? TermType::MockPractice : TermType::BasicLearning;

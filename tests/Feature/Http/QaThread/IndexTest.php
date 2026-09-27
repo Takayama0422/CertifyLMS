@@ -6,6 +6,7 @@ namespace Tests\Feature\Http\QaThread;
 
 use App\Models\Certification;
 use App\Models\CertificationCoachAssignment;
+use App\Models\QaReply;
 use App\Models\QaThread;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -124,6 +125,23 @@ class IndexTest extends TestCase
         $cert = Certification::factory()->published()->create();
         $matching = QaThread::factory()->for($cert)->create(['title' => '二分探索木の実装について']);
         $notMatching = QaThread::factory()->for($cert)->create(['title' => '全く関係ない話題']);
+
+        $response = $this->actingAs($student)->get(route('qa-board.index', ['keyword' => '二分探索木']));
+
+        $response->assertViewHas('threads', function ($threads) use ($matching, $notMatching) {
+            $ids = $threads->pluck('id')->all();
+
+            return in_array($matching->id, $ids, true) && ! in_array($notMatching->id, $ids, true);
+        });
+    }
+
+    public function test_filters_by_keyword_matching_reply_body(): void
+    {
+        $student = User::factory()->student()->create();
+        $cert = Certification::factory()->published()->create();
+        $matching = QaThread::factory()->for($cert)->create(['title' => '全く関係ない話題A']);
+        QaReply::factory()->for($matching, 'thread')->create(['body' => '二分探索木を使うと高速化できます']);
+        $notMatching = QaThread::factory()->for($cert)->create(['title' => '全く関係ない話題B']);
 
         $response = $this->actingAs($student)->get(route('qa-board.index', ['keyword' => '二分探索木']));
 

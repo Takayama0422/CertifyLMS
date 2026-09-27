@@ -35,7 +35,7 @@ class SectionQuestionPolicy
         }
 
         if ($auth->role === UserRole::Coach) {
-            return false;
+            return $this->assignedCoach($auth, $certification);
         }
 
         if ($question->status !== ContentStatus::Published) {
@@ -76,7 +76,7 @@ class SectionQuestionPolicy
     {
         return match ($auth->role) {
             UserRole::Admin => true,
-            UserRole::Coach => false,
+            UserRole::Coach => $this->assignedCoach($auth, $certification),
             default => false,
         };
     }
