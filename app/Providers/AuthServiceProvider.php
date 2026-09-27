@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Models\AiChatConversation;
 use App\Models\Announcement;
 use App\Models\Certification;
 use App\Models\CertificationCategory;
@@ -11,10 +12,13 @@ use App\Models\Chapter;
 use App\Models\ChatRoom;
 use App\Models\CoachAvailability;
 use App\Models\Enrollment;
+use App\Models\EnrollmentGoal;
+use App\Models\EnrollmentNote;
 use App\Models\Invitation;
 use App\Models\LearningHourTarget;
 use App\Models\LearningSession;
 use App\Models\Meeting;
+use App\Models\MeetingPack;
 use App\Models\MockExam;
 use App\Models\MockExamQuestion;
 use App\Models\MockExamSession;
@@ -29,6 +33,7 @@ use App\Models\SectionQuestion;
 use App\Models\SectionQuestionAnswer;
 use App\Models\SectionQuestionAttempt;
 use App\Models\User;
+use App\Policies\AiChatConversationPolicy;
 use App\Policies\AnnouncementPolicy;
 use App\Policies\CertificationCategoryPolicy;
 use App\Policies\CertificationPolicy;
@@ -36,10 +41,13 @@ use App\Policies\ChapterPolicy;
 use App\Policies\ChapterViewPolicy;
 use App\Policies\ChatRoomPolicy;
 use App\Policies\CoachAvailabilityPolicy;
+use App\Policies\EnrollmentGoalPolicy;
+use App\Policies\EnrollmentNotePolicy;
 use App\Policies\EnrollmentPolicy;
 use App\Policies\InvitationPolicy;
 use App\Policies\LearningHourTargetPolicy;
 use App\Policies\LearningSessionPolicy;
+use App\Policies\MeetingPackPolicy;
 use App\Policies\MeetingPolicy;
 use App\Policies\MeetingQuotaPolicy;
 use App\Policies\MockExamPolicy;
@@ -89,6 +97,8 @@ class AuthServiceProvider extends ServiceProvider
         MockExamQuestion::class => MockExamQuestionPolicy::class,
         MockExamSession::class => MockExamSessionPolicy::class,
         Enrollment::class => EnrollmentPolicy::class,
+        EnrollmentGoal::class => EnrollmentGoalPolicy::class,
+        EnrollmentNote::class => EnrollmentNotePolicy::class,
         SectionProgress::class => SectionProgressPolicy::class,
         LearningSession::class => LearningSessionPolicy::class,
         LearningHourTarget::class => LearningHourTargetPolicy::class,
@@ -96,8 +106,10 @@ class AuthServiceProvider extends ServiceProvider
         SectionQuestionAttempt::class => SectionQuestionAttemptPolicy::class,
         Meeting::class => MeetingPolicy::class,
         CoachAvailability::class => CoachAvailabilityPolicy::class,
+        AiChatConversation::class => AiChatConversationPolicy::class,
         QaThread::class => QaThreadPolicy::class,
         QaReply::class => QaReplyPolicy::class,
+        MeetingPack::class => MeetingPackPolicy::class,
         DatabaseNotification::class => NotificationPolicy::class,
     ];
 

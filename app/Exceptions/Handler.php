@@ -46,6 +46,7 @@ class Handler extends ExceptionHandler
     private const REDIRECT_BACK_STATUSES = [
         409,  // ConflictHttpException(状態遷移違反 / 削除不可 / 残数不足等)
         422,  // UnprocessableEntityHttpException(ドメイン規則による拒否、FormRequest バリデーションは ValidationException 経路で別途処理)
+        429,  // TooManyRequestsHttpException(AiChatDailyLimitExceededException 等の上限超過)
     ];
 
     /**

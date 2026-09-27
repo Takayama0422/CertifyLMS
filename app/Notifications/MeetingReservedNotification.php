@@ -8,7 +8,7 @@ use App\Enums\NotificationType;
 use App\Models\Meeting;
 
 /**
- * 面談予約成立通知。当事者(受講生 / 担当コーチ)双方へ配信する。
+ * 面談予約成立通知。担当コーチへ配信する(予約操作者である受講生本人へは配信しない)。
  */
 final class MeetingReservedNotification extends BusinessEventNotification
 {

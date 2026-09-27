@@ -78,6 +78,33 @@ class DispatchAnnouncementActionTest extends TestCase
         $this->assertDatabaseMissing('notifications', ['notifiable_id' => $notEnrolled->id]);
     }
 
+    public function test_certification_target_excludes_students_whose_enrollment_for_that_certification_is_not_learning(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $certification = Certification::factory()->published()->create();
+        $otherCertification = Certification::factory()->published()->create();
+
+        // 対象資格の Enrollment は修了済だが、別資格を学習中のため User ステータスは in_progress
+        $passedForTarget = User::factory()->student()->inProgress()->create();
+        Enrollment::factory()->for($passedForTarget, 'user')->for($certification)->passed()->create();
+        Enrollment::factory()->for($passedForTarget, 'user')->for($otherCertification)->learning()->create();
+
+        $learning = User::factory()->student()->inProgress()->create();
+        Enrollment::factory()->for($learning, 'user')->for($certification)->learning()->create();
+
+        $announcement = $this->action()($admin, [
+            'title' => '資格指定お知らせ',
+            'body' => '本文',
+            'target_type' => AnnouncementTargetType::Certification->value,
+            'target_certification_id' => $certification->id,
+            'target_user_id' => null,
+        ]);
+
+        $this->assertSame(1, $announcement->dispatched_count);
+        $this->assertDatabaseHas('notifications', ['notifiable_id' => $learning->id, 'type' => AdminAnnouncementNotification::class]);
+        $this->assertDatabaseMissing('notifications', ['notifiable_id' => $passedForTarget->id]);
+    }
+
     public function test_user_target_reaches_only_the_specified_user(): void
     {
         $admin = User::factory()->admin()->create();

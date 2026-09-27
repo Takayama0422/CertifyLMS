@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\UseCases\Announcement;
 
 use App\Enums\AnnouncementTargetType;
+use App\Enums\EnrollmentStatus;
 use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\Announcement;
@@ -79,7 +80,9 @@ final class DispatchAnnouncementAction
             AnnouncementTargetType::AllStudents => null,
             AnnouncementTargetType::Certification => $query->whereHas(
                 'enrollments',
-                fn (Builder $q) => $q->where('certification_id', $announcement->target_certification_id),
+                fn (Builder $q) => $q
+                    ->where('certification_id', $announcement->target_certification_id)
+                    ->where('status', EnrollmentStatus::Learning->value),
             ),
             AnnouncementTargetType::User => $query->where('id', $announcement->target_user_id),
         };

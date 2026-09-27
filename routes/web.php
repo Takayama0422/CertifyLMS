@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\AiChatController;
+use App\Http\Controllers\AiChatConversationController;
+use App\Http\Controllers\AiChatMessageController;
 use App\Http\Controllers\AnnouncementController;
 use App\Http\Controllers\Auth\OnboardingController;
 use App\Http\Controllers\BrowseController;
@@ -14,10 +17,13 @@ use App\Http\Controllers\ChatRoomController;
 use App\Http\Controllers\ContentSearchController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EnrollmentController;
+use App\Http\Controllers\EnrollmentGoalController;
 use App\Http\Controllers\EnrollmentManagementController;
+use App\Http\Controllers\EnrollmentNoteController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\LearningHourTargetController;
 use App\Http\Controllers\MeetingController;
+use App\Http\Controllers\MeetingPackController;
 use App\Http\Controllers\MeetingQuotaHistoryController;
 use App\Http\Controllers\MockExamAnswerController;
 use App\Http\Controllers\MockExamCatalogController;
@@ -42,6 +48,9 @@ use App\Http\Controllers\SectionQuestionController;
 use App\Http\Controllers\SectionQuizController;
 use App\Http\Controllers\SectionQuizResultController;
 use App\Http\Controllers\Settings\AvailabilityController as SettingsAvailabilityController;
+use App\Http\Controllers\Settings\AvatarController as SettingsAvatarController;
+use App\Http\Controllers\Settings\PasswordController as SettingsPasswordController;
+use App\Http\Controllers\Settings\ProfileController as SettingsProfileController;
 use App\Http\Controllers\Settings\SettingsDefaultEnrollmentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\WeakDrillController;
@@ -113,7 +122,36 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->group(function (
     // 修了証受領(受講生自己発火、graduated は active-learning でブロックされるため新規受領不可)
     Route::post('enrollments/{enrollment}/receive-certificate', [ReceiveCertificateController::class, 'store'])
         ->name('enrollments.receiveCertificate');
+
+    // 個人学習目標(受講生本人のみ CRUD + 達成マーク / 解除。閲覧は enrollments.show 側で本人/コーチ/admin に開放)
+    Route::post('enrollments/{enrollment}/goals', [EnrollmentGoalController::class, 'store'])
+        ->name('enrollments.goals.store');
+    Route::get('enrollment-goals/{goal}/edit', [EnrollmentGoalController::class, 'edit'])
+        ->name('enrollment-goals.edit');
+    Route::patch('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'update'])
+        ->name('enrollment-goals.update');
+    Route::delete('enrollment-goals/{goal}', [EnrollmentGoalController::class, 'destroy'])
+        ->name('enrollment-goals.destroy');
+    Route::post('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'markAchieved'])
+        ->name('enrollment-goals.markAchieved');
+    Route::delete('enrollment-goals/{goal}/achieve', [EnrollmentGoalController::class, 'unmarkAchieved'])
+        ->name('enrollment-goals.unmarkAchieved');
 });
+
+// ============================================================
+// 全ロール共通 設定ルート(プロフィール / アバター / パスワード、本人のみ)
+// 修了済(graduated)受講生も利用できるため role: / active-learning は付与しない
+// ============================================================
+Route::middleware('auth')
+    ->prefix('settings')
+    ->name('settings.')
+    ->group(function () {
+        Route::get('profile', [SettingsProfileController::class, 'edit'])->name('profile.edit');
+        Route::patch('profile', [SettingsProfileController::class, 'update'])->name('profile.update');
+        Route::post('avatar', [SettingsAvatarController::class, 'store'])->name('avatar.store');
+        Route::delete('avatar', [SettingsAvatarController::class, 'destroy'])->name('avatar.destroy');
+        Route::put('password', [SettingsPasswordController::class, 'update'])->name('password.update');
+    });
 
 // ============================================================
 // 受講生専用 設定ルート(デフォルト資格の永続変更)
@@ -207,6 +245,17 @@ Route::middleware(['auth', 'role:admin'])->prefix('admin')->group(function () {
         ->name('admin.enrollments.updateExamDate');
     Route::post('enrollments/{enrollment}/fail', [EnrollmentManagementController::class, 'fail'])
         ->name('admin.enrollments.fail');
+
+    // 面談パックマスタ管理(追加面談購入用 SKU の CRUD + 公開状態遷移、admin のみ)
+    Route::resource('meeting-packs', MeetingPackController::class)
+        ->parameters(['meeting-packs' => 'plan'])
+        ->names('admin.meeting-packs');
+    Route::post('meeting-packs/{plan}/publish', [MeetingPackController::class, 'publish'])
+        ->name('admin.meeting-packs.publish');
+    Route::post('meeting-packs/{plan}/archive', [MeetingPackController::class, 'archive'])
+        ->name('admin.meeting-packs.archive');
+    Route::post('meeting-packs/{plan}/unarchive', [MeetingPackController::class, 'unarchive'])
+        ->name('admin.meeting-packs.unarchive');
 
     // お知らせ配信(S-B-08、既存の通知基盤に乗せて受講生へ配信。再配信 / 編集 / 取消の経路は無い)
     Route::get('announcements', [AnnouncementController::class, 'index'])->name('admin.announcements.index');
@@ -505,6 +554,20 @@ Route::middleware(['auth', 'role:coach'])->prefix('coach')->name('coach.')->grou
 });
 
 // ============================================================
+// コーチ / 管理者共有ルート — 受講生メモ(担当資格のみ。管理者は越境可。受講生は到達不可)
+// ============================================================
+Route::middleware(['auth', 'role:coach,admin'])->group(function () {
+    Route::post('enrollments/{enrollment}/notes', [EnrollmentNoteController::class, 'store'])
+        ->name('enrollments.notes.store');
+    Route::get('enrollment-notes/{note}/edit', [EnrollmentNoteController::class, 'edit'])
+        ->name('enrollment-notes.edit');
+    Route::patch('enrollment-notes/{note}', [EnrollmentNoteController::class, 'update'])
+        ->name('enrollment-notes.update');
+    Route::delete('enrollment-notes/{note}', [EnrollmentNoteController::class, 'destroy'])
+        ->name('enrollment-notes.destroy');
+});
+
+// ============================================================
 // コーチ専用ルート — 面談可能時間枠の編集
 // ============================================================
 Route::middleware(['auth', 'role:coach'])
@@ -524,6 +587,31 @@ Route::middleware(['auth', 'role:student', 'active-learning'])->prefix('meeting-
     // 面談回数履歴
     Route::get('history', [MeetingQuotaHistoryController::class, 'index'])->name('history');
 });
+
+// ============================================================
+// 受講生専用ルート — AI 相談(Gemini AI チャットボット, S-A-02)
+// 学習中(in_progress)の受講生のみ。会話の操作(閲覧 / 更新 / 削除 / メッセージ送信)は
+// 会話オーナー本人のみ(認可は AiChatConversationPolicy)。`ai-chat-enabled` 機能スイッチ OFF で
+// 画面・経路ごと 404 になる。
+// ============================================================
+Route::middleware(['auth', 'role:student', 'active-learning', 'ai-chat-enabled'])
+    ->prefix('ai-chat')
+    ->name('ai-chat.')
+    ->group(function () {
+        Route::get('/', [AiChatController::class, 'index'])->name('index');
+
+        Route::post('conversations', [AiChatConversationController::class, 'store'])
+            ->name('conversations.store');
+        Route::get('conversations/{conversation}', [AiChatConversationController::class, 'show'])
+            ->name('conversations.show');
+        Route::patch('conversations/{conversation}', [AiChatConversationController::class, 'update'])
+            ->name('conversations.update');
+        Route::delete('conversations/{conversation}', [AiChatConversationController::class, 'destroy'])
+            ->name('conversations.destroy');
+
+        Route::post('conversations/{conversation}/messages', [AiChatMessageController::class, 'store'])
+            ->name('conversations.messages.store');
+    });
 
 // ============================================================
 // 開発専用: 共通コンポーネントショーケース(APP_ENV=local のみ表示)
