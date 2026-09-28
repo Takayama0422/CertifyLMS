@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Feature\Http\MeetingPack;
 
 use App\Models\MeetingPack;
+use App\Models\Payment;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -99,6 +100,29 @@ class IndexTest extends TestCase
             '公開中を指定すると公開中のみ' => ['published', 'Published Pack', ['Draft Pack', 'Archived Pack']],
             'アーカイブを指定するとアーカイブのみ' => ['archived', 'Archived Pack', ['Draft Pack', 'Published Pack']],
         ];
+    }
+
+    public function test_list_shows_purchase_count_per_pack(): void
+    {
+        // 一覧の「購入数」列は決済ステータスで絞り込まない(詳細画面の購入数カードと同じ数え方)。
+        $admin = User::factory()->admin()->create();
+        $purchased = MeetingPack::factory()->published()->create(['name' => '購入ありパック', 'sort_order' => 1]);
+        $untouched = MeetingPack::factory()->published()->create(['name' => '購入なしパック', 'sort_order' => 2]);
+
+        Payment::factory()->for($purchased, 'meetingPack')->succeeded()->create();
+        Payment::factory()->for($purchased, 'meetingPack')->pending()->create();
+        Payment::factory()->for($purchased, 'meetingPack')->failed()->create();
+        Payment::factory()->for($purchased, 'meetingPack')->refunded()->create();
+
+        $response = $this->actingAs($admin)->get(route('admin.meeting-packs.index'));
+
+        $response->assertOk();
+
+        $plans = $response->viewData('plans');
+        $this->assertSame(4, $plans->firstWhere('id', $purchased->id)->payments_count);
+        $this->assertSame(0, $plans->firstWhere('id', $untouched->id)->payments_count);
+
+        $response->assertSee('4 件');
     }
 
     public function test_list_prioritizes_published_over_draft_and_archived(): void
