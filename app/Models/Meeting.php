@@ -40,6 +40,7 @@ class Meeting extends Model
         'meeting_url_snapshot',
         'completed_at',
         'meeting_quota_transaction_id',
+        'google_calendar_event_id',
     ];
 
     protected $casts = [

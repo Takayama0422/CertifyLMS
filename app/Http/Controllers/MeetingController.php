@@ -52,6 +52,10 @@ use Illuminate\View\View;
  * `MeetingCanceled` イベントとして発火するのみで、当事者への配信は `SendMeetingPartyNotifications`
  * リスナーが担う(Seeder・バッチ等、本 Controller 以外の経路から予約 / キャンセルしても通知が飛ぶように)。
  *
+ * Google カレンダー連携(S-A-01)も同じイベントに乗る。予定の登録・削除は `RegisterGoogleCalendarEvent` /
+ * `DeleteGoogleCalendarEvent`(コミット後に実行)が担う。予約時の空き確認だけは予約確定前に判定が要るため、
+ * `store()` が DB トランザクションの外で `MeetingAvailabilityService::googleBusyCoachIds()` を呼ぶ。
+ *
  * @see SendMeetingPartyNotifications
  */
 class MeetingController extends Controller
@@ -160,12 +164,24 @@ class MeetingController extends Controller
         $topic = $request->validated('topic');
         $student = $enrollment->user;
 
+        // 以下 2 つの空き確認は連携済コーチの数だけ Google と通信しうる(S-A-01)ため、DB トランザクションの外で
+        // 先に行う。トランザクション内に置くと、通信が終わるまでロックを保持し、トークン更新の保存も予約失敗で
+        // 巻き戻る。残数不足の判定を先に置くのは、従来どおり「残数不足 → 枠外」の順でエラーを返すため
+        // (残数の確定判定は、競合に強いようトランザクション内でも行う)。
+        if ($quotaService->remaining($student) < 1) {
+            throw new InsufficientMeetingQuotaException;
+        }
+
+        $availabilityService->validateSlot($enrollment->certification, $scheduledAt);
+
+        $googleBusyCoachIds = $availabilityService->googleBusyCoachIds($enrollment->certification, $scheduledAt);
+
         $meeting = DB::transaction(function () use (
             $enrollment,
             $student,
             $scheduledAt,
             $topic,
-            $availabilityService,
+            $googleBusyCoachIds,
             $coachLoadService,
             $quotaService,
             $consumeAction,
@@ -174,9 +190,9 @@ class MeetingController extends Controller
                 throw new InsufficientMeetingQuotaException;
             }
 
-            $availabilityService->validateSlot($enrollment->certification, $scheduledAt);
-
-            $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt);
+            $candidates = $this->findAvailableCoaches($enrollment->certification, $scheduledAt)
+                ->reject(fn (User $coach): bool => in_array($coach->id, $googleBusyCoachIds, true))
+                ->values();
             if ($candidates->isEmpty()) {
                 throw new MeetingNoAvailableCoachException;
             }
