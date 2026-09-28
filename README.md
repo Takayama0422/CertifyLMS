@@ -141,6 +141,33 @@ sail artisan test                  # 全テスト実行
 sail artisan test --filter=Xxx    # クラス名・メソッド名で絞り込み
 ```
 
+### 外部 API に依存するテストのグループ
+
+外部連携（Google カレンダー / Gemini / Stripe）のテストダブルやモックを使うテストには `#[Group('external')]` と、連携別のグループ（`google-calendar` / `gemini` / `stripe`）が付いています。
+
+```bash
+sail artisan test --group=external            # 外部 API に依存するテストだけ実行
+sail artisan test --exclude-group=external    # 外部 API に依存するテストを除外して実行
+sail artisan test --group=stripe              # 連携別（google-calendar / gemini / stripe）
+```
+
+新しく外部連携のテストを追加してグループを付け忘れると、`ExternalDependentTestsAreGroupedTest` が失敗します。
+
+### テストでの外部 API への実通信の防止
+
+テストでは、モックしていない外部通信（Gemini / Google カレンダー / Stripe）が発生すると、実通信へ流さずに遮断し、そのテストを失敗させます（`tests/TestCase.php`）。外部連携の呼び出し側は通信失敗を握りつぶしてフォールバックするため、例外を投げるだけではテストが失敗せず素通りしてしまうので、違反を記録してテスト終了時に失敗させる作りです。
+
+外部通信を伴うテストは、連携ごとに次の方法でモックします（差し替えたものが優先されます）。
+
+| 連携 | モック方法 |
+| --- | --- |
+| Gemini（`Http` ファサード） | `Http::fake()` |
+| Google カレンダー（利用側） | `$this->app->instance(GoogleCalendarClient::class, new FakeGoogleCalendarClient)` |
+| Google カレンダー（SDK の応答を DTO へ写す層） | `new GoogleApiCalendarClient($handlerStack)` に Guzzle の `MockHandler` を差し込む |
+| Stripe（利用側） | `$this->app->instance(PaymentGatewayContract::class, new FakePaymentGateway)` |
+| Stripe（SDK でセッションを作る層） | `ApiRequestor::setHttpClient(new FakeStripeHttpClient(...))` |
+| Stripe Webhook の署名 | `StripeWebhookTestHelpers::validStripeSignatureHeader()` で署名ヘッダを生成 |
+
 ## コード整形
 
 Laravel Pint を使用しています。コミット前に実行してください。

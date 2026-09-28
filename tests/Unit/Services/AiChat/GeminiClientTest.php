@@ -7,11 +7,14 @@ namespace Tests\Unit\Services\AiChat;
 use App\Services\AiChat\GeminiClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
  * `GeminiClient` の単体テスト。実通信は発生させず `Http::fake()` でモックする。
  */
+#[Group('external')]
+#[Group('gemini')]
 class GeminiClientTest extends TestCase
 {
     public function test_generate_reply_returns_failure_when_api_key_missing(): void

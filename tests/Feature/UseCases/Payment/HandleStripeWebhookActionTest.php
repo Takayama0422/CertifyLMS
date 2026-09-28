@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\MeetingQuotaService;
 use App\UseCases\Payment\HandleStripeWebhookAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Group;
 use Stripe\Event;
 use Tests\Support\StripeWebhookTestHelpers;
 use Tests\TestCase;
@@ -21,6 +22,8 @@ use Tests\TestCase;
  *
  * 冪等性(重複通知で残数が二重加算されない)・想定外の通知への耐性を最重要観点として網羅する。
  */
+#[Group('external')]
+#[Group('stripe')]
 class HandleStripeWebhookActionTest extends TestCase
 {
     use RefreshDatabase;

@@ -14,6 +14,7 @@ use App\Models\Section;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -25,6 +26,8 @@ use Tests\TestCase;
  * - 一般相談(section なし)は毎回新規作成
  * - 入力検証(初回メッセージ最大 2000)
  */
+#[Group('external')]
+#[Group('gemini')]
 class StoreConversationTest extends TestCase
 {
     use RefreshDatabase;

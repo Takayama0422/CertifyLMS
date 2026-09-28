@@ -13,6 +13,7 @@ use App\Services\MeetingAvailabilityService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\Support\FakeGoogleCalendarClient;
 use Tests\TestCase;
@@ -23,6 +24,8 @@ use Tests\TestCase;
  * 既存の `tests/Unit/Services/MeetingAvailabilityServiceTest.php`(既存テストは書き換え禁止)を
  * 補完する形で、別ファイルとして追加する。実通信は `FakeGoogleCalendarClient` で完全に置き換える。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class MeetingAvailabilityServiceGoogleCalendarTest extends TestCase
 {
     use RefreshDatabase;

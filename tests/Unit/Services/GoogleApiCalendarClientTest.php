@@ -6,6 +6,7 @@ namespace Tests\Unit\Services;
 
 use App\Services\GoogleCalendar\GoogleApiCalendarClient;
 use GuzzleHttp\Client as GuzzleHttpClient;
+use PHPUnit\Framework\Attributes\Group;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -22,6 +23,8 @@ use Tests\TestCase;
  * (`test_busy_intervals_falls_back_to_empty_when_client_throws_after_delay` 等)で、
  * 実通信を経由しない FakeGoogleCalendarClient の模擬遅延を使って検証している。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class GoogleApiCalendarClientTest extends TestCase
 {
     /**

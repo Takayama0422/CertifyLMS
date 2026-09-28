@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Services\MeetingQuotaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\Support\StripeWebhookTestHelpers;
 use Tests\TestCase;
 
@@ -20,6 +21,8 @@ use Tests\TestCase;
  * 正規署名 / 不正署名 / 署名欠落の 3 パターンと、鍵未設定時の安全側フォールバック(503)、
  * 重複通知に対する冪等性を HTTP レイヤーで通しで検証する。
  */
+#[Group('external')]
+#[Group('stripe')]
 class StripeWebhookTest extends TestCase
 {
     use RefreshDatabase;
