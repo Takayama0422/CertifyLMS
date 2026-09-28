@@ -18,8 +18,12 @@ use App\Services\NotificationRecipientService;
  * - キャンセル時: `canceled_by_user_id` を操作者とみなし、操作していない側(相手)のみへ通知する。
  *
  * `MeetingReserved` / `MeetingCanceled` イベントを受けて動く(発火元は Controller に限らない)。
- * `BusinessEventNotification` 系はキュー非同期化のスコープ外(S-B-04 の方針)のため、本リスナーも
- * `ShouldQueue` を実装せず、イベント発火と同一プロセス内で同期実行する。
+ * 本リスナー自体は `ShouldQueue` を実装せずイベント発火と同一プロセス内で同期実行するが、
+ * `$recipient->notify()` が呼ぶ `BusinessEventNotification` 系は T-A-05 で `ShouldQueueAfterCommit`
+ * を実装したため、実際の配信(database 書き込み + mail 送信)はバックグラウンドのキューへ委譲される。
+ * 予約・キャンセルのイベントは `MeetingController` が `DB::transaction()` の内側で発火するため、
+ * ここでの `notify()` 呼び出し時点ではトランザクション中だが、`ShouldQueueAfterCommit` により
+ * キューへ積まれるのは commit 後になる(予約・キャンセルが巻き戻った場合に配信が漏れない)。
  */
 final class SendMeetingPartyNotifications
 {
