@@ -101,6 +101,20 @@ class IndexTest extends TestCase
         $response->assertDontSee($gone->fresh()->email);
     }
 
+    public function test_keyword_search_excludes_withdrawn_users(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $active = User::factory()->create(['name' => '山田太郎', 'email' => 'yamada@example.test']);
+        $gone = User::factory()->create(['name' => '山田次郎', 'email' => 'gone@example.test']);
+        app(UserWithdrawalService::class)->withdraw($gone);
+
+        $response = $this->actingAs($admin)->get(route('admin.users.index', ['keyword' => '山田']));
+
+        $response->assertOk();
+        $response->assertSee('yamada@example.test');
+        $response->assertDontSee($gone->fresh()->email);
+    }
+
     public function test_status_filter_includes_withdrawn_when_explicitly_selected(): void
     {
         $admin = User::factory()->admin()->create();

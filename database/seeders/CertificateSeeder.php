@@ -14,6 +14,7 @@ use App\Models\Certification;
 use App\Models\Enrollment;
 use App\Models\EnrollmentStatusLog;
 use App\Models\User;
+use App\Services\CertificatePdfGenerator;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
 
@@ -128,5 +129,7 @@ final class CertificateSeeder extends Seeder
                 'issued_at' => $issuedAt,
             ])
             ->create();
+
+        app(CertificatePdfGenerator::class)->generate($certificate);
     }
 }

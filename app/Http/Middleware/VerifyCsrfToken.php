@@ -14,6 +14,8 @@ class VerifyCsrfToken extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        // 決済サービス(Stripe)からの通知は認証なし・CSRF トークンを持たないため除外する。
+        // 正当性の担保は署名検証(StripeWebhookController)側で行う。
+        'webhooks/stripe',
     ];
 }

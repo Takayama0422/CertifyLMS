@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
  * 追加面談購入用の SKU マスタ。受講生が dashboard から購入する都度購入型の面談回数パック。
@@ -60,6 +61,16 @@ class MeetingPack extends Model
     }
 
     /**
+     * この SKU の購入記録(Payment、S-A-03)。管理画面の購入履歴表示で利用する。
+     *
+     * @return HasMany<Payment, $this>
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(Payment::class);
+    }
+
+    /**
      * @param Builder<MeetingPack> $query
      *
      * @return Builder<MeetingPack>
@@ -70,12 +81,26 @@ class MeetingPack extends Model
     }
 
     /**
+     * 公開中を優先し、下書き・アーカイブが続く並び順(`app/UseCases/Certification/IndexAction.php` と同じ考え方)。
+     * 同順位内は sort_order 昇順 → created_at 降順。
+     *
      * @param Builder<MeetingPack> $query
      *
      * @return Builder<MeetingPack>
      */
     public function scopeOrdered(Builder $query): Builder
     {
+        $driver = $query->getConnection()->getDriverName();
+
+        if ($driver === 'mysql') {
+            $query->orderByRaw("FIELD(status, 'published', 'draft', 'archived')");
+        } else {
+            // SQLite では FIELD() が使えないため CASE 式で同等の優先順位を表現する
+            $query->orderByRaw(
+                "CASE status WHEN 'published' THEN 1 WHEN 'draft' THEN 2 WHEN 'archived' THEN 3 ELSE 4 END"
+            );
+        }
+
         return $query->orderBy('sort_order')->orderByDesc('created_at');
     }
 }

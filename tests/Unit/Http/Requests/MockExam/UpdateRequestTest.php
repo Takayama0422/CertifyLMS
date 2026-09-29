@@ -30,6 +30,18 @@ class UpdateRequestTest extends TestCase
         $this->assertTrue($validator->passes(), $validator->errors()->toJson());
     }
 
+    public function test_passes_with_passing_score_boundary_value_100(): void
+    {
+        // Arrange
+        $payload = ['title' => 'Sample', 'order' => 0, 'passing_score' => 100];
+
+        // Act
+        $validator = Validator::make($payload, (new UpdateRequest)->rules());
+
+        // Assert
+        $this->assertTrue($validator->passes(), $validator->errors()->toJson());
+    }
+
     #[DataProvider('invalidCases')]
     public function test_fails_for_invalid_field(string $field, mixed $value): void
     {

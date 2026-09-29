@@ -10,6 +10,7 @@ use App\Enums\UserRole;
 use App\Enums\UserStatus;
 use App\Models\CoachAvailability;
 use App\Models\Enrollment;
+use App\Models\GoogleCalendarCredential;
 use App\Models\Meeting;
 use App\Models\MeetingMemo;
 use App\Models\MeetingQuotaTransaction;
@@ -36,9 +37,36 @@ final class MentoringSeeder extends Seeder
     public function run(): void
     {
         $this->seedCoachAvailabilities();
+        $this->seedGoogleCalendarCredentials();
         $this->seedFixedStudentMeetings();
         $this->seedNoQuotaStudentMeetings();
         $this->seedDemoMeetings();
+    }
+
+    /**
+     * S-A-01: 連携済コーチと未連携コーチを両方用意し、予約画面の空き枠反映・連携状態表示・
+     * 連携解除の動作確認をどちらの状態からも行えるようにする(実際の Google トークンではなくダミー値)。
+     *
+     * ダミートークンは意図的に「期限切れ + refresh_token 無し」で投入する。`GoogleCalendarService::
+     * freshAccessToken()` は refresh_token が無いと(期限切れ時)ローカルで即座に例外を投げてフォールバックし、
+     * Google への実 HTTP リクエストへは一切進まない。もし有効期限内のダミートークンを入れると、
+     * 受講生が予約画面を開くたびに(実在しない)そのトークンで Google Calendar API へ実通信が飛んでしまう
+     * (ネットワークの無い環境での動作確認時に待たされる原因になる)。連携済コーチのレコード自体
+     * (= `isConnected()` が true になること)はチケットの要求どおり用意しつつ、実通信には入らせない。
+     */
+    private function seedGoogleCalendarCredentials(): void
+    {
+        $coach1 = User::query()->where('email', 'coach@certify-lms.test')->first();
+
+        if ($coach1 !== null) {
+            GoogleCalendarCredential::factory()->forCoach($coach1)->create([
+                'access_token' => 'dummy-access-token-seed',
+                'refresh_token' => null,
+                'token_expires_at' => now()->subHour(),
+            ]);
+        }
+
+        // coach2(coach2@certify-lms.test)・demo コーチ群はあえて未連携のまま残す。
     }
 
     /**
