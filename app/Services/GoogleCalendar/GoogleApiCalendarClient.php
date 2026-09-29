@@ -26,11 +26,21 @@ use RuntimeException;
  * 各 method 呼び出し時のみで、その失敗は呼び出し元の `GoogleCalendarService` が catch して
  * 面談機能の根幹(空き枠表示 / 予約 / キャンセル)を止めないようフォールバックする。
  *
- * このクラス自体は実通信を行うため、テストでは `GoogleCalendarClient` インターフェースを
- * フェイク実装に差し替えて使う(本クラスを直接テストしない = 実通信を発生させない)。
+ * このクラス自体は実通信を行うため、利用側(`GoogleCalendarService` 等)のテストでは
+ * `GoogleCalendarClient` インターフェースをフェイク実装に差し替える。本クラス自身(SDK の応答を
+ * DTO へ写す層)のテストは、コンストラクタで Guzzle のハンドラ(`MockHandler` 等)を差し込み、
+ * 実通信を発生させずに行う(T-A-04)。
  */
 final class GoogleApiCalendarClient implements GoogleCalendarClient
 {
+    /**
+     * @param callable|null $httpHandler Guzzle のハンドラ。テストで通信をモックするための差し込み口で、
+     *                                   本番(既定 null)では Guzzle 標準のハンドラを使い、挙動は変わらない
+     */
+    public function __construct(
+        private readonly mixed $httpHandler = null,
+    ) {}
+
     public function authorizationUrl(string $state, string $redirectUri): string
     {
         $client = $this->makeClient($redirectUri);
@@ -148,7 +158,7 @@ final class GoogleApiCalendarClient implements GoogleCalendarClient
             'http_errors' => false,
             'connect_timeout' => (float) config('services.google.connect_timeout'),
             'timeout' => (float) config('services.google.timeout'),
-        ]);
+        ] + ($this->httpHandler !== null ? ['handler' => $this->httpHandler] : []));
     }
 
     private function clientWithToken(string $accessToken): GoogleClient

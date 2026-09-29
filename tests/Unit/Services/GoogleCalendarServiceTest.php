@@ -13,6 +13,7 @@ use App\Services\GoogleCalendar\DataTransfer\GoogleOAuthToken;
 use App\Services\GoogleCalendar\GoogleCalendarService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\Support\FakeGoogleCalendarClient;
 use Tests\TestCase;
@@ -24,6 +25,8 @@ use Tests\TestCase;
  * 「Google との通信に失敗しても面談機能の根幹は止めない」フォールバック挙動と、
  * OAuth state 検証(なりすまし拒否)、トークンの自動更新(連携の継続)を検証する。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class GoogleCalendarServiceTest extends TestCase
 {
     use RefreshDatabase;

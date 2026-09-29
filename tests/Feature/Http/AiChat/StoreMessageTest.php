@@ -12,6 +12,7 @@ use App\Models\AiChatMessage;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -27,6 +28,8 @@ use Tests\TestCase;
  * - 入力検証(本文必須 / 最大 2000)
  * - 会話オーナー以外は 403
  */
+#[Group('external')]
+#[Group('gemini')]
 class StoreMessageTest extends TestCase
 {
     use RefreshDatabase;

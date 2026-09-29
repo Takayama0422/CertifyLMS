@@ -13,6 +13,7 @@ use App\Services\Contracts\PaymentGatewayContract;
 use App\UseCases\Payment\CreateCheckoutSessionAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\Support\FakePaymentGateway;
 use Tests\TestCase;
 
@@ -20,6 +21,8 @@ use Tests\TestCase;
  * CreateCheckoutSessionAction の検証。実通信は発生させず、PaymentGatewayContract を
  * FakePaymentGateway に差し替えて Payment 行の作成 / スナップショット保存 / エラー時のロールバックを確認する。
  */
+#[Group('external')]
+#[Group('stripe')]
 class CreateCheckoutSessionActionTest extends TestCase
 {
     use RefreshDatabase;

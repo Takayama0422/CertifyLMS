@@ -19,6 +19,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\Group;
 use RuntimeException;
 use Tests\Support\FakeGoogleCalendarClient;
 use Tests\TestCase;
@@ -29,6 +30,8 @@ use Tests\TestCase;
  *
  * 実通信は `FakeGoogleCalendarClient` に完全に差し替え、実通信を一切発生させない。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class MeetingControllerGoogleCalendarTest extends TestCase
 {
     use RefreshDatabase;

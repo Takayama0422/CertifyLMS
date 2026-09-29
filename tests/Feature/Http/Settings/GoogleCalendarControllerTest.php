@@ -8,6 +8,7 @@ use App\Models\GoogleCalendarCredential;
 use App\Models\User;
 use App\Services\GoogleCalendar\Contracts\GoogleCalendarClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\Support\FakeGoogleCalendarClient;
 use Tests\TestCase;
 
@@ -17,6 +18,8 @@ use Tests\TestCase;
  * 実通信は `FakeGoogleCalendarClient` に完全に差し替え、実通信を一切発生させない。
  * コーチ以外のロールが弾かれること、OAuth state 検証(なりすまし拒否)、連携解除の成否を確認する。
  */
+#[Group('external')]
+#[Group('google-calendar')]
 class GoogleCalendarControllerTest extends TestCase
 {
     use RefreshDatabase;

@@ -11,12 +11,15 @@ use App\Models\User;
 use App\Services\Contracts\PaymentGatewayContract;
 use App\Services\MeetingQuotaService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\Support\FakePaymentGateway;
 use Tests\TestCase;
 
 /**
  * POST /meeting-quota/checkout(購入実行、決済サービスへリダイレクト)。実通信は発生させない。
  */
+#[Group('external')]
+#[Group('stripe')]
 class StoreTest extends TestCase
 {
     use RefreshDatabase;

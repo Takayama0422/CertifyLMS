@@ -18,6 +18,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -32,6 +33,8 @@ use Tests\TestCase;
  *   トランザクションを開いたままにしない)
  * - 同じ教材への同時作成が一意制約違反(500)にならず、先に作られた会話の再利用へ倒れる
  */
+#[Group('external')]
+#[Group('gemini')]
 class StoreConversationActionTest extends TestCase
 {
     use RefreshDatabase;
@@ -79,6 +82,16 @@ class StoreConversationActionTest extends TestCase
     public function test_initial_title_uses_first_40_chars_of_message_without_ellipsis(): void
     {
         // Str::limit は文字数ではなく表示幅(mb_strwidth)で切り詰めるため、半角(幅 1)で検証する。
+        // 初期メッセージ付きの会話作成は Gemini へ送信するため、モックしないと実際の API へ通信してしまう(T-A-04)。
+        // このテストが検証するのは「初期タイトル」なので、AI による自動タイトル生成は無効にしておく
+        // (以前は実通信が失敗して自動タイトルが付かなかっただけで、意図してその状態にしていたわけではない)。
+        config(['ai-chat.auto_title.enabled' => false]);
+        Http::fake([
+            '*' => Http::response([
+                'candidates' => [['content' => ['parts' => [['text' => '回答']]]]],
+                'usageMetadata' => ['promptTokenCount' => 80, 'candidatesTokenCount' => 25],
+            ], 200),
+        ]);
         $student = User::factory()->student()->inProgress()->create();
         $longMessage = str_repeat('a', 60);
 

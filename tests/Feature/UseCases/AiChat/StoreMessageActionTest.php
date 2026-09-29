@@ -11,6 +11,7 @@ use App\Models\User;
 use App\UseCases\AiChat\StoreMessageAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\Group;
 use Tests\TestCase;
 
 /**
@@ -22,6 +23,8 @@ use Tests\TestCase;
  * - 見出しの自動生成(有効時 / 手動編集済みのときのスキップ / 無効化スイッチ / 初回のみ / 失敗しても
  *   本処理は失敗させない)— これまで 1 本もテストが無かった機能(レビュー指摘 5)
  */
+#[Group('external')]
+#[Group('gemini')]
 class StoreMessageActionTest extends TestCase
 {
     use RefreshDatabase;
